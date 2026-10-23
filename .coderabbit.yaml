@@ -9,6 +9,8 @@ reviews:
   auto_review:
     enabled: true
     drafts: false
+    base_branches:
+      - ".*"  # stacked pull requests target another PR's branch, not main; review those too
   path_instructions:
     - path: "app/**/*.py"
       instructions: |
