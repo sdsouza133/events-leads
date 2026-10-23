@@ -21,9 +21,18 @@ def test_deployed_environments_refuse_a_short_secret(env: str) -> None:
         Settings(env=env, secret_key="too-short")
 
 
+PROD_DB = "postgresql://u:p@db.example.com:5432/postgres"
+
+
 def test_production_accepts_a_long_random_secret() -> None:
-    settings = Settings(env="production", secret_key="k" * 48)
+    settings = Settings(env="production", secret_key="k" * 48, database_url=PROD_DB)
     assert settings.env == "production"
+
+
+def test_production_refuses_to_fall_back_to_the_dev_database(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    with pytest.raises(ValidationError, match="DATABASE_URL must be set"):
+        Settings(env="production", secret_key="k" * 48)
 
 
 def test_only_postgres_urls_are_accepted() -> None:
@@ -34,6 +43,16 @@ def test_only_postgres_urls_are_accepted() -> None:
 def test_plain_postgres_urls_get_the_psycopg_driver() -> None:
     settings = Settings(database_url="postgresql://u:p@db.example.com:5432/postgres")
     assert settings.sqlalchemy_url == "postgresql+psycopg://u:p@db.example.com:5432/postgres"
+
+
+def test_legacy_postgres_scheme_is_accepted_and_converted() -> None:
+    settings = Settings(database_url="postgres://u:p@db.example.com:5432/postgres")
+    assert settings.sqlalchemy_url == "postgresql+psycopg://u:p@db.example.com:5432/postgres"
+
+
+def test_a_blank_secret_falls_back_to_the_dev_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SECRET_KEY", "")
+    assert Settings(env="dev").secret_key.get_secret_value().startswith("dev-only")
 
 
 def test_urls_that_already_name_the_driver_are_left_alone() -> None:

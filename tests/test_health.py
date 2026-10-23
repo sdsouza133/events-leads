@@ -48,9 +48,35 @@ def test_hsts_is_sent_when_the_site_is_served_over_https(monkeypatch: pytest.Mon
     assert response.headers["Strict-Transport-Security"].startswith("max-age=")
 
 
-def test_api_docs_are_hidden_outside_dev_and_test(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ENV", "staging")
-    monkeypatch.setenv("SECRET_KEY", "x" * 40)
-    client = TestClient(create_app())
+def test_no_interactive_api_docs_are_served(client: TestClient) -> None:
     assert client.get("/docs").status_code == 404
     assert client.get("/openapi.json").status_code == 404
+
+
+@pytest.mark.parametrize(
+    "supplied",
+    ["", "x" * 65, "abc 123", "abc\r\nInjected: yes", "<script>"],
+)
+def test_unsafe_request_ids_are_replaced(client: TestClient, supplied: str) -> None:
+    response = client.get("/healthz", headers={"X-Request-ID": supplied})
+    issued = response.headers["X-Request-ID"]
+    assert issued != supplied
+    assert len(issued) == 32
+
+
+def test_a_crashing_route_still_gets_headers_a_request_id_and_a_log_line(caplog: pytest.LogCaptureFixture) -> None:
+    app = create_app()
+
+    @app.get("/boom")
+    def boom() -> None:
+        raise RuntimeError("kaboom")
+
+    with caplog.at_level("INFO", logger="app.http"):
+        response = TestClient(app).get("/boom", headers={"X-Request-ID": "req-1"})
+    assert response.status_code == 500
+    assert "kaboom" not in response.text  # no internals in the response
+    assert response.headers["X-Request-ID"] == "req-1"
+    assert response.headers["Content-Security-Policy"] == SECURITY_HEADERS["Content-Security-Policy"]
+    records = [r for r in caplog.records if getattr(r, "request_id", None) == "req-1"]
+    assert [r.getMessage() for r in records] == ["unhandled error", "request"]
+    assert records[0].exc_info is not None

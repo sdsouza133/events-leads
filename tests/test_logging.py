@@ -4,7 +4,7 @@ import sys
 
 import pytest
 
-from app.logging_config import JsonFormatter, mask_email
+from app.logging_config import JsonFormatter, configure_logging, mask_email
 
 
 def _record(msg: str, **extra: object) -> logging.LogRecord:
@@ -40,3 +40,18 @@ def test_exceptions_are_included() -> None:
 )
 def test_mask_email(email: str, masked: str) -> None:
     assert mask_email(email) == masked
+
+
+def test_configuring_twice_adds_one_handler_and_keeps_others() -> None:
+    root = logging.getLogger()
+    other = logging.NullHandler()
+    root.addHandler(other)
+    try:
+        configure_logging("INFO")
+        configure_logging("INFO")
+        json_handlers = [h for h in root.handlers if isinstance(h.formatter, JsonFormatter)]
+        assert len(json_handlers) == 1
+        assert other in root.handlers
+        assert logging.getLogger("httpx2").level == logging.WARNING
+    finally:
+        root.removeHandler(other)

@@ -12,13 +12,14 @@ flowchart LR
     K --> P[Apify<br/>LinkedIn post search]
     K --> AP[Apollo<br/>people + verified emails]
     K -.optional.-> R[Reoon<br/>email check]
-    W --> M[Resend<br/>sign-in and results emails]
-    K --> M
+    K --> M[Resend<br/>sign-in and results emails]
 ```
 
 Two processes from one codebase and one Docker image:
 
-- **Web** serves pages and the operator console. It never calls a paid API; it only writes jobs to the database.
+- **Web** serves pages and the operator console. It never calls an outside service, not even to send email: it writes
+  jobs (and outbox emails) to the database, and the worker does the rest. A slow or failing provider therefore can't
+  slow down or break a page.
 - **Worker** runs the pipeline as a sequence of jobs. Several workers can run at once.
 
 Postgres is the only stateful piece. It holds the data, the job queue, the spend ledger and the rate-limit counters,
@@ -74,10 +75,12 @@ stateDiagram-v2
 ## Cost controls
 
 - Nothing paid runs before the requester signs in and approves.
-- Every paid call first **reserves** its estimated cost against the run's cap and the day's cap in one database
+- Dollar-billed calls (Apify, Claude) first **reserve** their estimated cost against the run's cap and the day's cap in one database
   transaction (row lock on today's budget), so two workers can't both squeeze under the limit. Actual cost is
   settled afterwards.
 - Apify runs carry `maxTotalChargeUsd`, so even a runaway search can't exceed its reservation.
+- Credit-billed calls have their own per-run counters: Apollo lookups (150 per run) and, when enabled, Reoon checks
+  (one per delivered lead). Resend's free tier covers our email volume; sign-ins are rate-limited per IP and email.
 - Caches mean popular events and people are paid for once.
 
 ## Scaling to 10,000 users

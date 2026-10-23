@@ -26,14 +26,21 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(out, default=str)
 
 
+# uvicorn.access: our middleware logs each request instead. httpx2/httpcore2: they log every outgoing URL at INFO,
+# and some provider APIs (Reoon) take the API key as a query parameter.
+QUIET_LOGGERS = ("uvicorn.access", "httpx2", "httpcore2")
+
+
 def configure_logging(level: str) -> None:
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setFormatter(JsonFormatter())
+    """Add the JSON handler to the root logger once. Other handlers (pytest's log capture, a debugger's) are kept."""
     root = logging.getLogger()
-    root.handlers[:] = [handler]
+    if not any(isinstance(h.formatter, JsonFormatter) for h in root.handlers):
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setFormatter(JsonFormatter())
+        root.addHandler(handler)
     root.setLevel(level)
-    for noisy in ("uvicorn.access",):  # request lines come from our own middleware instead
-        logging.getLogger(noisy).setLevel(logging.WARNING)
+    for name in QUIET_LOGGERS:
+        logging.getLogger(name).setLevel(logging.WARNING)
 
 
 def mask_email(email: str) -> str:

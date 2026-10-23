@@ -17,5 +17,7 @@ minutes and work once. Operators sign in the same way; their addresses are liste
 
 - Nothing to leak: no passwords stored.
 - Proves the person controls a mailbox at the company, which is also the cap key (one free run per domain).
-- Depends on email delivery (Resend, with SPF and DKIM on our domain). Locally and in previews, the link is logged
-  instead of sent.
+- Depends on email delivery (Resend, with SPF and DKIM on our domain).
+- Sign-in links are secrets and are **never written to logs**, in any environment. Without a Resend key, emails go to
+  an outbox table instead of being sent: on a developer's machine (`ENV=dev`) the outbox is shown on a local-only
+  page, and in previews only operators and the QA suite (with its own secret token) can read it.

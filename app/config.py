@@ -9,19 +9,23 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 Environment = Literal["dev", "test", "staging", "production"]
 
 MIN_SECRET_KEY_LENGTH = 32
+POSTGRES_SCHEMES = ("postgresql+psycopg://", "postgresql://", "postgres://")
+DEV_DATABASE_URL = "postgresql+psycopg://el:el@127.0.0.1:5432/el_dev"
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    # env_ignore_empty: a blank variable (SECRET_KEY= in a copied .env) means "use the default", not "use ''".
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore", env_ignore_empty=True)
 
     env: Environment = "dev"
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     base_url: str = "http://localhost:8000"
 
     # Postgres. Supabase in production: use the Session pooler URI (IPv4, keeps prepared statements working).
-    database_url: str = "postgresql+psycopg://el:el@127.0.0.1:5432/el_dev"
+    database_url: str = DEV_DATABASE_URL
     db_pool_size: int = Field(default=5, ge=1, le=50)
     db_max_overflow: int = Field(default=5, ge=0, le=50)
+    db_connect_timeout_seconds: int = Field(default=5, ge=1, le=60)
 
     # Signs session and CSRF tokens. Must be set (and long) outside dev and test.
     secret_key: SecretStr = SecretStr("dev-only-secret-key-change-me-0123456789")
@@ -34,15 +38,18 @@ class Settings(BaseSettings):
                 raise ValueError(
                     f"SECRET_KEY must be set to a random value of at least {MIN_SECRET_KEY_LENGTH} characters"
                 )
-        if not self.database_url.startswith(("postgresql+psycopg://", "postgresql://")):
+        if not self.database_url.startswith(POSTGRES_SCHEMES):
             raise ValueError("DATABASE_URL must be a PostgreSQL URL")
+        if self.env in ("staging", "production") and self.database_url == DEV_DATABASE_URL:
+            raise ValueError("DATABASE_URL must be set outside dev and test")
         return self
 
     @property
     def sqlalchemy_url(self) -> str:
-        """SQLAlchemy needs the driver named; Supabase and Railway hand out plain postgresql:// URLs."""
-        if self.database_url.startswith("postgresql://"):
-            return "postgresql+psycopg://" + self.database_url.removeprefix("postgresql://")
+        """SQLAlchemy needs the driver named; providers hand out plain postgresql:// (or legacy postgres://) URLs."""
+        for plain in ("postgresql://", "postgres://"):
+            if self.database_url.startswith(plain):
+                return "postgresql+psycopg://" + self.database_url.removeprefix(plain)
         return self.database_url
 
 
