@@ -1,0 +1,33 @@
+name: Bug
+description: Something that doesn't work the way it should
+labels: [bug]
+body:
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Go to ...
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened instead
+      description: Include the request ID (X-Request-ID response header) or run ID if you have it. Don't paste personal data.
+    validations:
+      required: true
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Environment
+      options: [production, staging, preview (pull request), local]
+    validations:
+      required: true
