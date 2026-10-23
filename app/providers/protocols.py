@@ -4,7 +4,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Protocol, runtime_checkable
 
-from app.providers.types import FetchedPage, MatchResult, OutgoingEmail, SearchedPost, SearchRun
+from app.providers.types import Answer, FetchedPage, MatchResult, OutgoingEmail, SearchedPost, SearchRun
 from app.schemas import EventSuggestion, LabeledPost, PostToLabel, SiteAnalysis
 
 
@@ -17,13 +17,17 @@ class WebFetcher(Protocol):
 
 @runtime_checkable
 class Llm(Protocol):
-    def analyze_site(self, pages: list[FetchedPage]) -> SiteAnalysis: ...
+    """Every answer carries its cost, so the caller can settle the spend it reserved."""
 
-    def find_events(self, analysis: SiteAnalysis, *, today: date) -> list[EventSuggestion]:
+    def analyze_site(self, pages: list[FetchedPage]) -> Answer[SiteAnalysis]: ...
+
+    def find_events(self, analysis: SiteAnalysis, *, today: date) -> Answer[list[EventSuggestion]]:
         """Events from live web search, never from memory: each one names the search result it came from."""
         ...
 
-    def label_posts(self, event_name: str, posts: list[PostToLabel]) -> list[LabeledPost]: ...
+    def label_posts(self, event_name: str, posts: list[PostToLabel]) -> Answer[list[LabeledPost]]:
+        """One label per post, in any order, matched by post id."""
+        ...
 
 
 @runtime_checkable

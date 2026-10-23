@@ -16,6 +16,7 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 from app.providers.types import (
+    Answer,
     EnrichedPerson,
     FetchedPage,
     MatchResult,
@@ -77,12 +78,12 @@ class FakeFetcher:
 class FakeLlm:
     """Answers like the model would, from simple rules over the input."""
 
-    def analyze_site(self, pages: list[FetchedPage]) -> SiteAnalysis:
+    def analyze_site(self, pages: list[FetchedPage]) -> Answer[SiteAnalysis]:
         if not pages:
             raise ValueError("no pages to analyze")
         title = pages[0].title or "Your company"
         name = title.split("|")[0].strip() or "Your company"
-        return SiteAnalysis(
+        analysis = SiteAnalysis(
             company_name=name,
             offering=f"{name} sells revenue analytics software to B2B SaaS companies.",
             icp=Icp(
@@ -106,8 +107,9 @@ class FakeLlm:
             ),
             event_topics=["B2B marketing", "revenue operations", "SaaS growth"],
         )
+        return Answer(analysis, model="fake")
 
-    def find_events(self, analysis: SiteAnalysis, *, today: date) -> list[EventSuggestion]:
+    def find_events(self, analysis: SiteAnalysis, *, today: date) -> Answer[list[EventSuggestion]]:
         year = today.year
         plans = [
             ("RevOps Summit", "RevOpsSummit", -40, "Austin, United States"),
@@ -132,10 +134,10 @@ class FakeLlm:
                     why=f"Where {analysis.icp.personas[0].label.lower()} in {analysis.event_topics[0]} meet.",
                 )
             )
-        return events
+        return Answer(events, model="fake")
 
-    def label_posts(self, event_name: str, posts: list[PostToLabel]) -> list[LabeledPost]:
-        return [_fake_label(event_name, p) for p in posts]
+    def label_posts(self, event_name: str, posts: list[PostToLabel]) -> Answer[list[LabeledPost]]:
+        return Answer([_fake_label(event_name, p) for p in posts], model="fake")
 
 
 _FAKE_LABEL_RULES = [

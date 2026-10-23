@@ -25,9 +25,9 @@ TODAY = date(2026, 10, 23)
 def test_fake_site_analysis_and_events() -> None:
     llm = FakeLlm()
     page = FakeFetcher().fetch("https://acme.example/")
-    analysis = llm.analyze_site([page])
+    analysis = llm.analyze_site([page]).value
     assert analysis.company_name == "Acme Analytics"
-    events = llm.find_events(analysis, today=TODAY)
+    events = llm.find_events(analysis, today=TODAY).value
     assert len(events) == 4
     starts = [e.start_date for e in events]
     assert any(s and s < TODAY for s in starts)
@@ -68,7 +68,7 @@ def test_fake_labels_cover_the_main_cases() -> None:
         PostToLabel(post_id="5", text="Can't make it this year"),
         PostToLabel(post_id="6", text="Interesting industry"),
     ]
-    labels = [p.label for p in FakeLlm().label_posts("RevOps Summit", posts)]
+    labels = [p.label for p in FakeLlm().label_posts("RevOps Summit", posts).value]
     assert labels == [
         AttendanceLabel.ATTENDING,
         AttendanceLabel.ATTENDED,

@@ -6,6 +6,24 @@ from decimal import Decimal
 from enum import StrEnum
 
 
+class ProviderError(Exception):
+    """A provider call failed. `retryable` tells the job queue whether trying again later can help
+    (rate limits, timeouts, 5xx) or not (a rejected key, a malformed request)."""
+
+    def __init__(self, message: str, *, retryable: bool) -> None:
+        super().__init__(message)
+        self.retryable = retryable
+
+
+@dataclass(frozen=True)
+class Answer[T]:
+    """A model's answer and what it cost, so the caller can settle the spend it reserved."""
+
+    value: T
+    cost_usd: Decimal = Decimal(0)
+    model: str | None = None
+
+
 @dataclass(frozen=True)
 class FetchedPage:
     url: str
@@ -77,3 +95,4 @@ class OutgoingEmail:
     subject: str
     text: str
     html: str | None = None
+    key: str | None = None  # idempotency key: the same key is never delivered twice (ADR 0002)
