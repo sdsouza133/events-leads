@@ -26,6 +26,9 @@ def get_engine() -> Engine:
         max_overflow=settings.db_max_overflow,
         pool_pre_ping=True,  # poolers drop idle connections; check before use instead of failing a request
         pool_recycle=1800,
+        # Without this, an unreachable database blocks connect() until the OS gives up (minutes), tying up the
+        # threads that /readyz and every other request run on.
+        connect_args={"connect_timeout": settings.db_connect_timeout_seconds},
     )
 
 

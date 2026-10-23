@@ -66,8 +66,10 @@ It is a lead magnet for B2B Dynamics: no sales pitch inside the product. The val
 | Leads delivered per run | 50 |
 | LinkedIn searches per event | 4 |
 | Posts per search | 50 |
-| Spend per run (Apify + Claude) | $3 |
-| Spend per day, all runs together | $20 (new runs wait in line when it's reached) |
+| Spend per run, dollar-billed services (Apify + Claude) | $3 |
+| Spend per day, dollar-billed services, all runs together | $20 (new runs wait in line when it's reached) |
+| Apollo lookups per run (credit-billed) | 150 |
+| Reoon checks per run, when enabled (credit-billed) | one per delivered lead, at most 50 |
 | Sign-up attempts per IP address per hour | 5 |
 
 ## Non-functional requirements
