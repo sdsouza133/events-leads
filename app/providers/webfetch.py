@@ -1,0 +1,245 @@
+"""Fetch a requester's website without letting anyone point us at our own network (SSRF).
+
+The rules, applied to the first request and to every redirect:
+
+- only `http` on port 80 and `https` on port 443, and no credentials in the URL;
+- the host is resolved here, and every address it resolves to must be public: no private, loopback, link-local,
+  carrier-grade NAT, multicast, reserved or unspecified ranges, including IPv4 hidden inside IPv6 (mapped, 6to4,
+  Teredo, NAT64);
+- we connect to the address we checked and send the hostname in the Host header and TLS SNI, so the name can't
+  resolve to something else between the check and the connection (DNS rebinding);
+- redirects are followed by hand, at most 3;
+- at most 2 MB is read, and each request gets 10 seconds in total;
+- only HTML and plain text are accepted.
+"""
+
+import ipaddress
+import socket
+import time
+from collections.abc import Callable
+from typing import NamedTuple
+from urllib.parse import SplitResult, urljoin, urlsplit, urlunsplit
+
+import httpx2
+from bs4 import BeautifulSoup, Tag
+
+from app.providers.types import FetchedPage
+
+Resolver = Callable[[str, int], list[str]]
+
+DEFAULT_PORTS = {"http": 80, "https": 443}
+MAX_BYTES = 2_000_000
+MAX_REDIRECTS = 3
+TIMEOUT_SECONDS = 10.0
+MAX_TEXT_CHARS = 20_000
+MAX_LINKS = 200
+ACCEPTED_TYPES = ("text/html", "application/xhtml+xml", "text/plain")
+REDIRECT_CODES = {301, 302, 303, 307, 308}
+USER_AGENT = "events-leads/0.1 (reads a company's public pages once, when its own staff ask)"
+
+_NAT64 = ipaddress.ip_network("64:ff9b::/96")
+_NOISE_TAGS = ["script", "style", "noscript", "svg", "template", "iframe", "canvas"]
+
+
+class FetchError(Exception):
+    """The page couldn't be fetched. The message is safe to show the requester."""
+
+
+class BlockedAddressError(FetchError):
+    """The link points at an address we refuse to connect to."""
+
+
+class _Target(NamedTuple):
+    parts: SplitResult
+    host: str
+    port: int
+
+
+def system_resolver(host: str, port: int) -> list[str]:
+    try:
+        infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except socket.gaierror as exc:
+        raise FetchError(f"{host} could not be found") from exc
+    return list(dict.fromkeys(str(info[4][0]) for info in infos))
+
+
+def is_public_address(address: str) -> bool:
+    ip = ipaddress.ip_address(address)
+    if isinstance(ip, ipaddress.IPv6Address):
+        embedded = _embedded_ipv4(ip)
+        if embedded is not None:
+            return is_public_address(str(embedded))
+    return ip.is_global and not (
+        ip.is_multicast or ip.is_reserved or ip.is_link_local or ip.is_loopback or ip.is_private or ip.is_unspecified
+    )
+
+
+def _embedded_ipv4(ip: ipaddress.IPv6Address) -> ipaddress.IPv4Address | None:
+    if ip.ipv4_mapped is not None:
+        return ip.ipv4_mapped
+    if ip.sixtofour is not None:
+        return ip.sixtofour
+    if ip.teredo is not None:
+        return ip.teredo[1]  # (server, client): the client is where traffic would go
+    if ip in _NAT64:
+        return ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
+    return None
+
+
+def _check_url(url: str) -> _Target:
+    try:
+        parts = urlsplit(url.strip())
+        explicit_port = parts.port
+    except ValueError as exc:
+        raise FetchError("that doesn't look like a valid web address") from exc
+    if parts.scheme not in DEFAULT_PORTS:
+        raise FetchError("only http and https links can be read")
+    if not parts.hostname:
+        raise FetchError("that link has no host name")
+    if parts.username or parts.password:
+        raise FetchError("links with a username or password can't be read")
+    port = explicit_port or DEFAULT_PORTS[parts.scheme]
+    if port != DEFAULT_PORTS[parts.scheme]:
+        raise FetchError("only the standard web ports (80 and 443) can be read")
+    try:
+        host = parts.hostname.encode("idna").decode("ascii")
+    except UnicodeError as exc:
+        raise FetchError("that host name isn't valid") from exc
+    return _Target(parts, host, port)
+
+
+class SafeFetcher:
+    def __init__(
+        self,
+        *,
+        resolver: Resolver = system_resolver,
+        transport: httpx2.BaseTransport | None = None,
+        max_bytes: int = MAX_BYTES,
+        timeout_seconds: float = TIMEOUT_SECONDS,
+        max_redirects: int = MAX_REDIRECTS,
+    ) -> None:
+        self._resolver = resolver
+        self._max_bytes = max_bytes
+        self._timeout = timeout_seconds
+        self._max_redirects = max_redirects
+        # trust_env=False: proxy settings from the environment would bypass the address checks.
+        self._client = httpx2.Client(
+            transport=transport, timeout=timeout_seconds, follow_redirects=False, trust_env=False
+        )
+
+    def close(self) -> None:
+        self._client.close()
+
+    def fetch(self, url: str) -> FetchedPage:
+        current = url
+        for _ in range(self._max_redirects + 1):
+            target = _check_url(current)
+            address = self._public_address(target)
+            with self._client.stream(
+                "GET",
+                _url_for_address(target, address),
+                headers={"Host": target.host, "User-Agent": USER_AGENT, "Accept": "text/html,text/plain;q=0.9"},
+                extensions={"sni_hostname": target.host} if target.parts.scheme == "https" else {},
+            ) as response:
+                if response.status_code in REDIRECT_CODES and "location" in response.headers:
+                    current = urljoin(current, response.headers["location"])
+                    continue
+                return self._read_page(current, response)
+        raise FetchError("the site redirected too many times")
+
+    def _public_address(self, target: _Target) -> str:
+        addresses = self._resolver(target.host, target.port)
+        if not addresses:
+            raise FetchError(f"{target.host} could not be found")
+        if not all(is_public_address(a) for a in addresses):
+            raise BlockedAddressError(f"{target.host} points to a private or reserved network address")
+        # Prefer IPv4: it's what most hosting egress supports.
+        return sorted(addresses, key=lambda a: ipaddress.ip_address(a).version)[0]
+
+    def _read_page(self, url: str, response: httpx2.Response) -> FetchedPage:
+        if response.status_code >= 400:  # noqa: PLR2004 (HTTP error range)
+            raise FetchError(f"the site answered with an error ({response.status_code})")
+        content_type = response.headers.get("content-type", "").split(";")[0].strip().lower()
+        if content_type not in ACCEPTED_TYPES:
+            raise FetchError("that link isn't a web page")
+        deadline = time.monotonic() + self._timeout
+        body = bytearray()
+        for chunk in response.iter_bytes():
+            body.extend(chunk)
+            if len(body) > self._max_bytes:
+                raise FetchError("the page is too large to read")
+            if time.monotonic() > deadline:
+                raise FetchError("the site took too long to answer")
+        text = bytes(body).decode(response.charset_encoding or "utf-8", errors="replace")
+        return extract_page(url, response.status_code, content_type, text)
+
+
+def _url_for_address(target: _Target, address: str) -> str:
+    netloc = f"[{address}]" if ipaddress.ip_address(address).version == 6 else address  # noqa: PLR2004
+    return urlunsplit((target.parts.scheme, netloc, target.parts.path or "/", target.parts.query, ""))
+
+
+def extract_page(url: str, status: int, content_type: str, body: str) -> FetchedPage:
+    if content_type == "text/plain":
+        return FetchedPage(url=url, status=status, title=None, description=None, text=_squash(body))
+    soup = BeautifulSoup(body, "html.parser")
+    title = soup.title.get_text(strip=True) if soup.title else None
+    description = None
+    meta = soup.find("meta", attrs={"name": "description"})
+    if isinstance(meta, Tag):
+        description = str(meta.get("content") or "").strip() or None
+    links: list[str] = []
+    for anchor in soup.find_all("a", href=True):
+        absolute = urljoin(url, str(anchor["href"])).split("#")[0]
+        if absolute.startswith(("http://", "https://")) and absolute not in links:
+            links.append(absolute)
+        if len(links) >= MAX_LINKS:
+            break
+    for tag in soup(_NOISE_TAGS):
+        tag.decompose()
+    return FetchedPage(
+        url=url, status=status, title=title, description=description, text=_squash(soup.get_text(" ")), links=links
+    )
+
+
+def _squash(text: str) -> str:
+    return " ".join(text.split())[:MAX_TEXT_CHARS]
+
+
+# Pages that describe who a company sells to, in rough order of usefulness.
+FOLLOWUP_HINTS = (
+    "customers",
+    "case-stud",
+    "about",
+    "pricing",
+    "solutions",
+    "industries",
+    "who-we",
+    "use-cases",
+    "product",
+    "platform",
+    "company",
+)
+
+
+def pick_followup_links(page: FetchedPage, limit: int = 4) -> list[str]:
+    """Up to `limit` same-site links worth reading after the home page (About, Customers, Pricing and the like)."""
+    home = _site(page.url)
+    ranked: list[tuple[int, str]] = []
+    for link in page.links:
+        if _site(link) != home:
+            continue
+        path = urlsplit(link).path.lower()
+        rank = next((i for i, hint in enumerate(FOLLOWUP_HINTS) if hint in path), None)
+        if rank is not None and link.rstrip("/") != page.url.rstrip("/"):
+            ranked.append((rank, link))
+    seen: list[str] = []
+    for _, link in sorted(ranked):
+        if link not in seen:
+            seen.append(link)
+    return seen[:limit]
+
+
+def _site(url: str) -> str:
+    host = urlsplit(url).hostname or ""
+    return host.removeprefix("www.")
