@@ -1,5 +1,5 @@
-// While a run works, check its status every few seconds. Show the new detail as it changes (read out by screen
-// readers through the aria-live region), and reload the page once the run moves to another stage.
+// While a run works, check its status every few seconds. Tick the steps off as they finish (read out by screen
+// readers through the status line), and reload the page once the run moves on: to its plan, its list, or a stop.
 (function () {
   "use strict";
   var el = document.getElementById("run");
@@ -7,17 +7,35 @@
     return;
   }
   var url = el.getAttribute("data-status-url");
-  var status = el.getAttribute("data-status");
-  var detail = document.getElementById("run-detail");
+  var phase = el.getAttribute("data-phase");
+  var note = document.getElementById("run-note");
+  var live = document.getElementById("run-step");
+  var states = { done: "Done", active: "In progress", pending: "Up next" };
+  var active = el.querySelector(".step.is-active");
+  var current = active ? Number(active.getAttribute("data-step")) : -1;
   var every = 5000;
 
+  function tick(step) {
+    var items = el.querySelectorAll(".step");
+    for (var i = 0; i < items.length; i++) {
+      var state = i < step ? "done" : i === step ? "active" : "pending";
+      items[i].className = "step is-" + state;
+      items[i].querySelector(".step-state").textContent = states[state];
+    }
+    if (step !== current && items[step]) {
+      live.textContent = "Now: " + items[step].querySelector(".step-label").textContent;
+    }
+    current = step;
+  }
+
   function show(body) {
-    if (body.status !== status) {
+    if (!body.progress || body.progress.phase !== phase) {
       window.location.reload(); // the run moved on: the page shows its new stage
       return;
     }
-    if (detail && detail.textContent !== body.detail) {
-      detail.textContent = body.detail;
+    tick(body.progress.step);
+    if (note && note.textContent !== body.progress.note) {
+      note.textContent = body.progress.note;
     }
     window.setTimeout(check, every);
   }

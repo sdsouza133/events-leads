@@ -1,9 +1,11 @@
 """The plan a requester reviews before anything is searched (issue #8, FR-4).
 
-While a run awaits approval, its page shows the ICP we read from the website and the events we found, each with the
-LinkedIn searches we would run. The requester can edit the ICP, pick up to 3 events, change their searches, and add
-events of their own, whose searches we write from the name and date. Both buttons post the whole form, so nothing
-typed is lost: "Add this event" saves the plan and shows it again, "Approve" saves it and starts collecting.
+While a run awaits approval, its page shows who we'll look for, as a few chips, and the events we found, as cards with
+the first three picked: a plan that looks right takes one press of "Find my leads". Everything else is a click away:
+"Adjust" opens the ICP to edit, each card's "Searches" the LinkedIn searches we'd run, "Show more" the other events,
+and "Add an event you know" an event of the requester's own, whose searches we write from its name and date. Every
+button posts the whole form, so nothing typed is lost: "Save" and "Add this event" save the plan and show it again,
+"Find my leads" saves it and starts collecting.
 """
 
 import uuid
@@ -46,7 +48,7 @@ PRESELECTED = collect.MAX_EVENTS
 NOTICES = {
     "saved": "Your changes are saved.",
     "added": "We added your event and picked it.",
-    "added-unpicked": "We added your event. You've already picked 3, so untick one to search this one instead.",
+    "added-unpicked": "We added your event. You've picked 3 already, so unpick one to search this one instead.",
 }
 EXPIRED = "This page had expired. Please press the button again."
 MESSAGES = {
@@ -68,6 +70,8 @@ ICP_FIELDS = {  # Icp's fields, and the form field each one is edited in
     "exclude_title_keywords": "exclude",
 }
 SIZES = [band.value for band in SizeBand]
+CHIPS_EACH = 3
+"""Industries and regions shown as chips, each: more are counted ("+2 more"), and all are in "Adjust"."""
 SENIORITIES = {
     Seniority.OWNER: "Owner",
     Seniority.FOUNDER: "Founder",
@@ -105,8 +109,15 @@ class EventRow:
     url: str | None
     why: str | None
     own: bool
+    month: str  # the date tile: "NOV" over "4"
+    day: str
+    past: bool  # over already: we'd look for the people who went
     picked: bool
     queries: str
+
+
+Numbered = list[tuple[int, EventRow]]
+"""Events with their place in the form, which names their fields (event-0-pick, ...)."""
 
 
 @dataclass
@@ -127,7 +138,8 @@ class Plan:
 
 def show(request: Request, run: Run, account: Account, settings: Settings, *, notice: str = "") -> HTMLResponse:
     """The run's page while it awaits approval."""
-    return _render(request, run, account, settings, plan=_stored(run), notice=NOTICES.get(notice, ""))
+    plan = _stored(run, today=common.now().date())
+    return _render(request, run, account, settings, plan=plan, notice=NOTICES.get(notice, ""))
 
 
 @router.post("/runs/{run_id}/plan", response_model=None)
@@ -149,7 +161,7 @@ def save_plan(
     run = runs.locked(session, visible.id)  # as it is now, and no other request changes it until this one commits
     if run is None or run.status != RunStatus.AWAITING_APPROVAL:
         return back  # approved already (a second click, say) or stopped: its page says where it stands
-    posted = _posted(form, run)
+    posted = _posted(form, run, today=common.now().date())
     if not common.csrf_ok(request, _text(form, auth.CSRF_FIELD)):
         return _render(request, run, account, settings, plan=posted, errors={"form": EXPIRED}, status_code=400)
     approving = _text(form, "action") == "approve"
@@ -182,7 +194,7 @@ def save_plan(
     return back if approving else shown_again
 
 
-def _stored(run: Run) -> Plan:
+def _stored(run: Run, *, today: date) -> Plan:
     icp = SiteAnalysis.model_validate(run.icp).icp
     buyers = [
         Buyer(persona.label, ", ".join(persona.title_keywords), [str(s) for s in persona.seniorities])
@@ -190,7 +202,7 @@ def _stored(run: Run) -> Plan:
     ]
     events = [
         EventRow(
-            **_shown(event),
+            **_shown(event, today=today),
             picked=bool(event.get("picked", i < PRESELECTED)),
             queries="\n".join(event.get("queries") or []),
         )
@@ -207,7 +219,7 @@ def _stored(run: Run) -> Plan:
     )
 
 
-def _posted(form: FormData, run: Run) -> Plan:
+def _posted(form: FormData, run: Run, *, today: date) -> Plan:
     buyers = [
         Buyer(
             _text(form, f"buyer-{j}-label"),
@@ -218,7 +230,7 @@ def _posted(form: FormData, run: Run) -> Plan:
     ]
     events = [
         EventRow(
-            **_shown(event),
+            **_shown(event, today=today),
             picked=_text(form, f"event-{i}-pick") == "1",
             queries=_text(form, f"event-{i}-queries"),
         )
@@ -334,13 +346,22 @@ def _render(
     notice: str = "",
     status_code: int = 200,
 ) -> HTMLResponse:
+    errors = errors or {}
+    shown, more = _split(plan.events, errors)
     context = {
         "account": account,
         "run": run,
         "plan": plan,
-        "errors": errors or {},
+        "errors": errors,
         "notice": notice,
         "offering": (run.icp or {}).get("offering"),
+        "roles": [buyer.label.strip() for buyer in plan.buyers if not buyer.blank and buyer.label.strip()],
+        "firms": _firm_chips(plan),
+        "adjusting": any(key in errors for key in ICP_FIELDS.values()) or any(k.startswith("buyer-") for k in errors),
+        "adding": any(key in errors for key in ("new_name", "new_date", "new_url")) or not plan.events,
+        "shown": shown,
+        "more": more,
+        "picked": sum(1 for event in plan.events if event.picked),
         "sizes": SIZES,
         "seniorities": [(str(value), label) for value, label in SENIORITIES.items()],
         "max_events": collect.MAX_EVENTS,
@@ -349,15 +370,65 @@ def _render(
     return page(request, "plan.html", context, settings, status_code=status_code)
 
 
-def _shown(event: dict[str, Any]) -> dict[str, Any]:
+def _split(events: list[EventRow], errors: dict[str, str]) -> tuple[Numbered, Numbered]:
+    """The events shown up front, by their place in the form: the first three, and any picked, added by the
+    requester, or with a problem to fix; and the rest, behind "Show more"."""
+    shown: Numbered = []
+    more: Numbered = []
+    for i, event in enumerate(events):
+        up_front = i < PRESELECTED or event.picked or event.own or f"event-{i}" in errors
+        (shown if up_front else more).append((i, event))
+    return shown, more
+
+
+def _firm_chips(plan: Plan) -> list[str]:
+    """The companies we'll look at, as chips: industries, then size, then regions."""
+    chips = _some(_items(plan.industries))
+    sizes = [size for size in SIZES if size in plan.company_sizes]
+    if sizes:
+        chips.append(_people(sizes))
+    return chips + _some(_items(plan.regions))
+
+
+def _some(items: list[str]) -> list[str]:
+    """Up to CHIPS_EACH items, and how many more there are."""
+    if len(items) <= CHIPS_EACH:
+        return items
+    return [*items[:CHIPS_EACH], f"+{len(items) - CHIPS_EACH} more"]
+
+
+def _people(sizes: list[str]) -> str:
+    """Company sizes in words: '51\u20131,000 people' when the bands run on from one another, else each band."""
+    places = [SIZES.index(size) for size in sizes]
+    if places == list(range(places[0], places[-1] + 1)):
+        return f"{_span(_bounds(sizes[0])[0], _bounds(sizes[-1])[1])} people"
+    return ", ".join(_span(*_bounds(size)) for size in sizes) + " people"
+
+
+def _bounds(size: str) -> tuple[int, int | None]:
+    """'51-200' -> (51, 200); '10001+' -> (10001, None)."""
+    low, _, high = size.removesuffix("+").partition("-")
+    return int(low), int(high) if high else None
+
+
+def _span(low: int, high: int | None) -> str:
+    return f"{low:,}\u2013{high:,}" if high is not None else f"{low:,}+"
+
+
+def _shown(event: dict[str, Any], *, today: date) -> dict[str, Any]:
     """What the page shows of an event besides its pick and searches."""
+    start, end = _day(event.get("start_date")), _day(event.get("end_date"))
+    first, last = start or end, end or start
     return {
         "name": event["name"],
-        "when": _when(_day(event.get("start_date")), _day(event.get("end_date"))),
+        "when": _when(start, end),
         "location": event.get("location"),
         "url": event.get("url"),
         "why": event.get("why"),
         "own": event.get("source") == "requester",
+        "month": f"{first:%b}".upper() if first else "",
+        "day": str(first.day) if first else "",
+        "past": last is not None and last < today,
     }
 
 

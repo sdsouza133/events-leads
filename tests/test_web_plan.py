@@ -202,6 +202,61 @@ def test_the_plan_shows_what_we_found_and_the_first_three_events_are_picked(clie
     assert "Online" in page
 
 
+def test_the_plan_reads_at_a_glance(client: TestClient, db: Session) -> None:
+    """Who we'll look for as chips, the events as cards with their dates, and the one button that starts it all."""
+    run = planned_run(db)
+    sign_in_as(client, db, run.account_id)
+    page = text(client.get(f"/runs/{run.id}"))
+    for chip in ("Marketing leaders", "Revenue operations", "Software", "51\u2013500 people", "Canada"):
+        assert f">{chip}</li>" in page
+    assert "3 of 3 picked" in page
+    assert "3 events · about 10 minutes" in page
+    assert f">{EVENTS[1].start_date:%b}<".upper() in page  # the date tiles: NOV over 14
+    assert "already happened" in page  # RevOps Summit was 20 days ago
+    assert 'value="approve"' in page
+    assert "/static/plan.js" in page
+
+
+def test_events_past_the_first_three_wait_behind_show_more_unless_picked(client: TestClient, db: Session) -> None:
+    run = planned_run(db)
+    fields = opened(client, db, run)
+    page = client.get(f"/runs/{run.id}").text
+    shown, _, more = page.partition("Show 1 more")
+    assert 'id="event-2"' in shown
+    assert 'id="event-3"' in more
+    assert 'id="event-3"' not in shown
+
+    changes: dict[str, str | list[str] | None] = {"event-0-pick": None, "event-3-pick": "1"}
+    saved = press(client, run, fields, "save", changes)
+    assert saved.status_code == 303
+    page = client.get(saved.headers["location"]).text
+    assert 'id="event-3"' in page
+    assert "Show 1 more" not in page  # the first three, and the picked fourth, are all up front
+
+
+def test_a_problem_with_the_icp_opens_adjust(client: TestClient, db: Session) -> None:
+    run = planned_run(db)
+    fields = opened(client, db, run)
+    closed = client.get(f"/runs/{run.id}").text
+    assert '<details class="adjust">' in closed
+    response = press(client, run, fields, "save", {"regions": ""})
+    assert response.status_code == 400
+    assert '<details class="adjust" open>' in response.text
+
+
+@pytest.mark.parametrize(
+    ("sizes", "shown"),
+    [
+        (["51-200", "201-500", "501-1000"], "51\u20131,000 people"),
+        (["1-10", "201-500"], "1\u201310, 201\u2013500 people"),
+        (["5001-10000", "10001+"], "5,001+ people"),
+        (["10001+"], "10,001+ people"),
+    ],
+)
+def test_company_sizes_are_written_as_a_range(sizes: list[str], shown: str) -> None:
+    assert plan._people(sizes) == shown
+
+
 @pytest.mark.parametrize(
     ("start", "end", "shown"),
     [
@@ -227,7 +282,7 @@ def test_approving_the_plan_as_it_stands_searches_the_picked_events(client: Test
     assert approved.approved_at is not None
     assert searched(db, run) == {event.name: build_queries(event, today=TODAY) for event in EVENTS[:3]}
     assert len(db.scalars(select(Job).where(Job.kind == COLLECT_EVENT)).all()) == 3
-    assert "Finding posts about your events" in client.get(f"/runs/{run.id}").text
+    assert "Searching LinkedIn posts about your events" in client.get(f"/runs/{run.id}").text
 
 
 def test_the_requester_s_edits_are_what_runs(client: TestClient, db: Session) -> None:
@@ -344,7 +399,8 @@ def test_an_event_of_your_own_gets_searches_and_is_picked_if_there_is_room(clien
     assert response.headers["location"] == f"/runs/{run.id}?notice=added#events"
     page = client.get(response.headers["location"]).text
     assert "We added your event and picked it." in page
-    assert "Revenue Leaders Europe (added by you)" in page
+    assert "Revenue Leaders Europe" in page
+    assert "Added by you" in page
 
     own = (fresh(db, run).suggested_events or [])[-1]
     assert (own["name"], own["start_date"], own["url"], own["source"], own["picked"]) == (
@@ -367,7 +423,7 @@ def test_an_event_added_with_three_already_picked_waits_unpicked(client: TestCli
     run = planned_run(db)
     response = press(client, run, opened(client, db, run), "add", {"new_name": "Revenue Leaders Europe"})
     assert response.headers["location"] == f"/runs/{run.id}?notice=added-unpicked#events"
-    assert "untick one to search this one instead" in text(client.get(response.headers["location"]))
+    assert "unpick one to search this one instead" in text(client.get(response.headers["location"]))
     assert (fresh(db, run).suggested_events or [])[-1]["picked"] is False
 
 

@@ -52,11 +52,14 @@ stateDiagram-v2
    instead of a guess. `find_events` asks Claude, with live web search, for real events, and builds up to four
    LinkedIn searches per event. Results are stored on the run for the requester to edit. Both jobs stay within the
    analysis budget, the only spend before approval.
-   - **The plan** (`app/web/plan.py`): while the run awaits approval, its page is a form with the ICP and the events.
-     The requester edits the ICP, picks up to three events (the first three start out picked), edits each event's
-     searches, and adds up to three events of their own, whose searches are built the same way from the name and
-     date. Edits are saved on the run as they go; approving hands the picked events to `collect.approve`, which
-     starts collecting. The form works without JavaScript.
+   - **The plan** (`app/web/plan.py`): while the run awaits approval, its page shows who we'll look for as chips and
+     the events as cards, the first three picked, so a plan that looks right takes one press of "Find my leads".
+     Behind a click each: "Adjust" edits the ICP, a card's "Searches" its LinkedIn searches, "Show more" the other
+     events, and "Add an event you know" up to three events of the requester's own, whose searches are built the
+     same way from the name and date. Edits are saved on the run as they go; approving hands the picked events to
+     `collect.approve`, which starts collecting. The form works without JavaScript; `plan.js` only keeps the count
+     live and says to unpick one before a fourth. While a run works, its page ticks off a few steps
+     (`run_page.progress`), which `run.js` updates from the status endpoint.
 2. **collect**, one `collect_event` job per approved event (at most three). A search any run made for the same event
    in the last `SEARCH_CACHE_DAYS` (3) is reused, and a run waits for another run's search of the event rather than
    pay for the same posts; the rest go into one Apify run capped by `maxTotalChargeUsd`. The job stores the Apify
