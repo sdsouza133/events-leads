@@ -1,5 +1,8 @@
 import socket
+import threading
+import time
 from collections.abc import Callable, Iterator
+from typing import Any
 
 import httpx2
 import pytest
@@ -61,7 +64,7 @@ def test_internal_and_special_addresses_are_refused(address: str) -> None:
 Handler = Callable[[httpx2.Request], httpx2.Response]
 
 
-def make_fetcher(handler: Handler, dns: dict[str, list[str]], **kwargs: int) -> SafeFetcher:
+def make_fetcher(handler: Handler, dns: dict[str, list[str]], **kwargs: Any) -> SafeFetcher:
     def resolve(host: str, port: int) -> list[str]:
         if host not in dns:
             raise FetchError(f"{host} could not be found")
@@ -285,13 +288,73 @@ def test_a_body_that_fails_while_reading_becomes_a_fetch_error() -> None:
         make_fetcher(handler, {"acme.example": [PUBLIC_V4]}).fetch("https://acme.example/")
 
 
-def test_an_unknown_charset_is_read_as_utf8() -> None:
+@pytest.mark.parametrize("charset", ["no-such-charset", "idna", "undefined"])  # unknown, or not a text codec
+def test_a_charset_that_cannot_decode_text_is_read_as_utf8(charset: str) -> None:
     def handler(request: httpx2.Request) -> httpx2.Response:
         body = "<html><body>Caf\u00e9 analytics</body></html>".encode()
-        return httpx2.Response(200, headers={"content-type": "text/html; charset=no-such-charset"}, content=body)
+        return httpx2.Response(200, headers={"content-type": f"text/html; charset={charset}"}, content=body)
 
     page = make_fetcher(handler, {"acme.example": [PUBLIC_V4]}).fetch("https://acme.example/")
     assert page.text == "Caf\u00e9 analytics"
+
+
+def test_a_lookup_that_hangs_is_cut_off_at_the_deadline() -> None:
+    release = threading.Event()
+
+    def hanging(host: str, port: int) -> list[str]:
+        release.wait(5)
+        return [PUBLIC_V4]
+
+    fetcher = SafeFetcher(resolver=hanging, transport=httpx2.MockTransport(lambda _r: html()), timeout_seconds=0.1)
+    started = time.monotonic()
+    try:
+        with pytest.raises(FetchError, match="took too long"):
+            fetcher.fetch("https://acme.example/")
+        assert time.monotonic() - started < 1
+    finally:
+        release.set()
+        fetcher.close()
+
+
+def test_redirects_share_one_deadline() -> None:
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        time.sleep(0.05)
+        return httpx2.Response(302, headers={"location": f"/hop{len(request.url.path)}"})
+
+    fetcher = make_fetcher(handler, {"acme.example": [PUBLIC_V4]}, timeout_seconds=0.12, max_redirects=10)
+    with pytest.raises(FetchError, match="took too long"):  # not "redirected too many times"
+        fetcher.fetch("https://acme.example/")
+
+
+def test_each_request_gets_only_the_time_left_as_its_timeout() -> None:
+    timeouts: list[float] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        timeouts.append(request.extensions["timeout"]["read"])
+        if request.url.path == "/":
+            time.sleep(0.2)
+            return httpx2.Response(302, headers={"location": "/about"})
+        return html()
+
+    make_fetcher(handler, {"acme.example": [PUBLIC_V4]}, timeout_seconds=5).fetch("https://acme.example/")
+    first, second = timeouts
+    assert first <= 5
+    assert second <= 5 - 0.2
+
+
+def test_the_body_is_read_within_the_same_deadline() -> None:
+    class SlowStream(httpx2.SyncByteStream):
+        def __iter__(self) -> Iterator[bytes]:
+            for _ in range(2):
+                time.sleep(0.2)
+                yield b"<p>more</p>"
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        time.sleep(0.4)  # the headers alone take most of the budget
+        return httpx2.Response(200, headers={"content-type": "text/html"}, stream=SlowStream())
+
+    with pytest.raises(FetchError, match="took too long"):
+        make_fetcher(handler, {"acme.example": [PUBLIC_V4]}, timeout_seconds=0.5).fetch("https://acme.example/")
 
 
 def test_a_malformed_redirect_is_a_fetch_error() -> None:

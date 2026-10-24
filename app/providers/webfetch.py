@@ -9,7 +9,8 @@ The rules, applied to the first request and to every redirect:
 - we connect to the address we checked and send the hostname in the Host header and TLS SNI, so the name can't
   resolve to something else between the check and the connection (DNS rebinding);
 - redirects are followed by hand, at most 3;
-- at most 2 MB is read, and each request gets 10 seconds in total;
+- at most 2 MB is read, and the whole fetch (lookups, redirects and the body) has 10 seconds: no step starts once
+  they are spent, and each lookup and request gets only what is left of them as its timeout;
 - only HTML and plain text are accepted.
 """
 
@@ -17,6 +18,7 @@ import ipaddress
 import socket
 import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from typing import NamedTuple
 from urllib.parse import SplitResult, urljoin, urlsplit, urlunsplit
 
@@ -31,6 +33,7 @@ DEFAULT_PORTS = {"http": 80, "https": 443}
 MAX_BYTES = 2_000_000
 MAX_REDIRECTS = 3
 TIMEOUT_SECONDS = 10.0
+LOOKUP_THREADS = 4
 MAX_TEXT_CHARS = 20_000
 MAX_LINKS = 200
 ACCEPTED_TYPES = ("text/html", "application/xhtml+xml", "text/plain")
@@ -126,26 +129,31 @@ class SafeFetcher:
         self._client = httpx2.Client(
             transport=transport, timeout=timeout_seconds, follow_redirects=False, trust_env=False
         )
+        # Lookups run here so the fetch can stop waiting for one that hangs (getaddrinfo has no timeout).
+        self._lookups = ThreadPoolExecutor(max_workers=LOOKUP_THREADS, thread_name_prefix="webfetch-dns")
 
     def close(self) -> None:
         self._client.close()
+        self._lookups.shutdown(wait=False, cancel_futures=True)
 
     def fetch(self, url: str) -> FetchedPage:
+        deadline = time.monotonic() + self._timeout  # one budget for every lookup, redirect and the body
         current = url
         for _ in range(self._max_redirects + 1):
             target = _check_url(current)
-            address = self._public_address(target)
+            address = self._public_address(target, deadline)
             try:
                 with self._client.stream(
                     "GET",
                     _url_for_address(target, address),
                     headers={"Host": target.host, "User-Agent": USER_AGENT, "Accept": "text/html,text/plain;q=0.9"},
                     extensions={"sni_hostname": target.host} if target.parts.scheme == "https" else {},
+                    timeout=_time_left(deadline),  # connect, send and each read
                 ) as response:
                     if response.status_code in REDIRECT_CODES and "location" in response.headers:
                         current = _redirect_target(current, response.headers["location"])
                         continue
-                    return self._read_page(current, response)
+                    return self._read_page(current, response, deadline)
             # Connection, TLS, protocol and decoding failures, while connecting or while reading the body.
             except httpx2.TimeoutException as exc:
                 raise FetchError("the site took too long to answer") from exc
@@ -153,8 +161,8 @@ class SafeFetcher:
                 raise FetchError(f"{target.host} could not be reached") from exc
         raise FetchError("the site redirected too many times")
 
-    def _public_address(self, target: _Target) -> str:
-        addresses = self._resolver(target.host, target.port)
+    def _public_address(self, target: _Target, deadline: float) -> str:
+        addresses = self._resolve(target, deadline)
         if not addresses:
             raise FetchError(f"{target.host} could not be found")
         if not all(is_public_address(a) for a in addresses):
@@ -162,13 +170,20 @@ class SafeFetcher:
         # Prefer IPv4: it's what most hosting egress supports.
         return sorted(addresses, key=lambda a: ipaddress.ip_address(a).version)[0]
 
-    def _read_page(self, url: str, response: httpx2.Response) -> FetchedPage:
+    def _resolve(self, target: _Target, deadline: float) -> list[str]:
+        left = _time_left(deadline)
+        lookup = self._lookups.submit(self._resolver, target.host, target.port)
+        try:
+            return lookup.result(timeout=left)
+        except TimeoutError as exc:  # the lookup thread runs on until the system resolver gives up
+            raise FetchError("the site took too long to answer") from exc
+
+    def _read_page(self, url: str, response: httpx2.Response, deadline: float) -> FetchedPage:
         if response.status_code >= 400:  # noqa: PLR2004 (HTTP error range)
             raise FetchError(f"the site answered with an error ({response.status_code})")
         content_type = response.headers.get("content-type", "").split(";")[0].strip().lower()
         if content_type not in ACCEPTED_TYPES:
             raise FetchError("that link isn't a web page")
-        deadline = time.monotonic() + self._timeout
         body = bytearray()
         for chunk in response.iter_bytes():
             body.extend(chunk)
@@ -178,9 +193,16 @@ class SafeFetcher:
                 raise FetchError("the site took too long to answer")
         try:
             text = bytes(body).decode(response.charset_encoding or "utf-8", errors="replace")
-        except LookupError:  # a charset Python doesn't know (the site sets the header, so anything can be in it)
+        except (LookupError, ValueError):  # the site sets the charset: it may be unknown, or no text codec (idna)
             text = bytes(body).decode("utf-8", errors="replace")
         return extract_page(url, response.status_code, content_type, text)
+
+
+def _time_left(deadline: float) -> float:
+    left = deadline - time.monotonic()
+    if left <= 0:
+        raise FetchError("the site took too long to answer")
+    return left
 
 
 def _redirect_target(current: str, location: str) -> str:

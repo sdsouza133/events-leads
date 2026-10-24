@@ -53,13 +53,14 @@ class Settings(BaseSettings):
     def _blank_means_unset(cls, data: Any) -> Any:
         """A blank variable (SECRET_KEY= in a copied .env, a CI secret that isn't set) means "use the default".
 
-        Except ENV: a blank ENV in a deployment must not quietly become "dev" and skip the checks below.
+        A value of only spaces counts as blank. Except ENV: a blank ENV in a deployment must not quietly become "dev"
+        and skip the checks below.
         """
         if not isinstance(data, dict):
             return data
-        if data.get("env") == "":
+        if "env" in data and _blank(data["env"]):
             raise ValueError("ENV is set but blank: set it to dev, test, staging or production")
-        return {name: value for name, value in data.items() if value != ""}
+        return {name: value for name, value in data.items() if not _blank(value)}
 
     @model_validator(mode="after")
     def _require_real_secrets(self) -> "Settings":
@@ -84,6 +85,10 @@ class Settings(BaseSettings):
             if self.database_url.startswith(plain):
                 return "postgresql+psycopg://" + self.database_url.removeprefix(plain)
         return self.database_url
+
+
+def _blank(value: Any) -> bool:
+    return isinstance(value, str) and not value.strip()
 
 
 @lru_cache
