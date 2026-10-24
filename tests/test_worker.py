@@ -286,7 +286,10 @@ def test_the_heartbeat_keeps_the_claim_fresh(db: Session) -> None:
     assert queue.claim(db, "worker-a", now=claimed_at) is not None
     db.commit()
     with worker._Heartbeat(job_id, "worker-a", every_seconds=0.05):
-        time.sleep(0.3)
+        deadline = time.monotonic() + 5  # wait for a beat instead of guessing when the thread gets to run
+        while (job(db, job_id).locked_at or claimed_at) <= claimed_at + timedelta(minutes=9):
+            assert time.monotonic() < deadline, "no heartbeat within 5 seconds"
+            time.sleep(0.05)
     locked_at = job(db, job_id).locked_at
     assert locked_at is not None
     assert locked_at > claimed_at + timedelta(minutes=9)
