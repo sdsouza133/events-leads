@@ -2,10 +2,11 @@
 
 from fastapi import APIRouter
 
-from app.web import outbox, plan, run_page, start
+from app.web import outbox, plan, results, run_page, start
 
 router = APIRouter()
 router.include_router(start.router)
 router.include_router(run_page.router)
 router.include_router(plan.router)
+router.include_router(results.router)
 router.include_router(outbox.router)

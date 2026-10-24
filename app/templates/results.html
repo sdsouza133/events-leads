@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Your leads for {{ run.domain }}{% endblock %}
+{% block main %}
+<h1>Your leads for {{ run.domain }}</h1>
+{% if expired %}
+<p class="lead">These results have expired. We keep a list for {{ days }} days, then delete the personal data in it.</p>
+{% elif not rows %}
+<p class="lead">{{ run.status_detail or "We didn't find anyone this time." }}</p>
+{% else %}
+<p class="lead">{{ rows | length }} {{ "person" if rows | length == 1 else "people" }} who went to, or are going to,
+{{ events }}, who match who you sell to and have a verified work email.</p>
+<p><a class="button" href="/runs/{{ run.id }}/leads.csv">Download the list (CSV)</a></p>
+{% if until %}<p class="small">You can see and download this list until {{ until }}.</p>{% endif %}
+<div class="table-wrap" role="region" aria-labelledby="leads-caption" tabindex="0">
+  <table>
+    <caption id="leads-caption">Your leads, best fit first</caption>
+    <thead>
+      <tr>
+        <th scope="col">Name</th>
+        <th scope="col">Title and company</th>
+        <th scope="col">Email</th>
+        <th scope="col">Event</th>
+        <th scope="col">ICP score</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td>{% if row.linkedin_url %}<a href="{{ row.linkedin_url }}" target="_blank" rel="noopener noreferrer">{{ row.name or "LinkedIn profile" }}<span class="visually-hidden"> on LinkedIn (opens in a new tab)</span></a>{% else %}{{ row.name }}{% endif %}</td>
+        <td>{{ row.title }}{% if row.title and row.company %}<br>{% endif %}{{ row.company }}</td>
+        <td>{{ row.email }}</td>
+        <td>{{ row.event }}<br>
+          <span class="small">{{ row.attendance }}{% if row.post_url %}: <a href="{{ row.post_url }}" target="_blank" rel="noopener noreferrer">their post<span class="visually-hidden"> (opens in a new tab)</span></a>{% endif %}</span></td>
+        <td>{{ row.score }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}
