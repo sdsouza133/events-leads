@@ -4,27 +4,41 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="strict-origin-when-cross-origin">
+  <meta name="color-scheme" content="light">
   <title>{% block title %}Event Leads{% endblock %} · Event Leads</title>
+  <link rel="preload" href="/static/fonts/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/static/fonts/bricolage-grotesque-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/static/app.css">
+  <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
 </head>
 <body{% block body_attrs %}{% endblock %}>
   <a class="skip" href="#main">Skip to content</a>
   <header class="site">
-    <a class="brand" href="/">Event Leads</a>
-    {% if account %}
-    <form method="post" action="/sign-out" class="inline">
+    <a class="brand" href="/">
+      <svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><rect width="32" height="32" rx="9" fill="#3346E8"/><circle cx="16" cy="12" r="4" fill="#fff"/><rect x="9" y="19" width="14" height="4" rx="2" fill="#fff"/></svg>
+      Event Leads
+    </a>
+    <nav class="account" aria-label="Your account">
+      {% if account %}
       {% if operator %}<a href="/admin">Console</a>{% endif %}
-      <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
       <span class="who">{{ account.email }}</span>
-      <button type="submit" class="link">Sign out</button>
-    </form>
-    {% endif %}
+      <form method="post" action="/sign-out">
+        <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
+        <button type="submit" class="link">Sign out</button>
+      </form>
+      {% else %}
+      <a href="/sign-in-again">Sign in</a>
+      {% endif %}
+    </nav>
   </header>
-  <main id="main" tabindex="-1">
+  <main id="main" tabindex="-1" class="page {% block main_class %}page-read{% endblock %}">
     {% block main %}{% endblock %}
   </main>
-  <footer class="site">
-    <p>Built by B2B Dynamics. Leads come from public LinkedIn posts.</p>
+  <footer class="site-footer">
+    <div>
+      <p>Built by B2B Dynamics. Leads come from public LinkedIn posts.</p>
+      <a href="/#how">How it works</a>
+    </div>
   </footer>
   {% block scripts %}{% endblock %}
 </body>

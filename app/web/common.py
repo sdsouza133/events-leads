@@ -1,5 +1,6 @@
 """What every page needs: templates, a database session, the signed-in account, and the CSRF cookie."""
 
+import logging
 import uuid
 from collections.abc import Iterator
 from datetime import UTC, datetime
@@ -9,6 +10,7 @@ from typing import Annotated, Any
 from fastapi import Depends, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from starlette.datastructures import FormData
 
@@ -16,8 +18,13 @@ from app import auth
 from app.config import Settings, get_settings
 from app.db import get_sessionmaker
 from app.models import Account, Run
+from app.web import icons
+
+log = logging.getLogger(__name__)
 
 TEMPLATES = Jinja2Templates(directory=Path(__file__).resolve().parent.parent / "templates")
+TEMPLATES.env.globals["icon"] = icons.icon
+TEMPLATES.env.globals["link_minutes"] = int(auth.LINK_LIFETIME.total_seconds() // 60)
 
 
 def now() -> datetime:
@@ -114,3 +121,18 @@ def page(
 
 def csrf_ok(request: Request, field: str) -> bool:
     return auth.csrf_ok(request.cookies.get(auth.CSRF_COOKIE), field)
+
+
+def missing_page(request: Request) -> HTMLResponse:
+    """The not-found page for an address no page lives at (a mistyped or cut-off link), instead of the framework's
+    JSON. Its header still shows who's signed in, unless the database can't say just now."""
+    settings = get_settings()
+    session = get_sessionmaker()()
+    try:
+        account = current_account(request, session)
+    except SQLAlchemyError:
+        log.warning("couldn't look up the account for a not-found page", exc_info=True)
+        account = None
+    finally:
+        session.close()
+    return page(request, "not_found.html", {"account": account}, settings, status_code=404)

@@ -1,7 +1,12 @@
 {% extends "base.html" %}
 {% block title %}Free list already used{% endblock %}
+{% block main_class %}page-center{% endblock %}
 {% block main %}
-<h1>{{ domain }} has already used its free list</h1>
-<p>Each company gets one free list. If you asked for it, <a href="/sign-in-again">get a sign-in link</a> to see
-it. If you have questions about it, reply to the email that brought you your results.</p>
+<div class="card card-raised panel">
+  <span class="panel-icon">{{ icon("users", 40, 1.8) }}</span>
+  <h1>{{ domain }} has had its free list</h1>
+  <p>Each company gets one. If it's yours, sign in to see it. Questions? Reply to the email that brought you
+  your list.</p>
+  <a class="btn btn-lg" href="/sign-in-again">Sign in to see it</a>
+</div>
 {% endblock %}

@@ -1,7 +1,11 @@
 {% extends "base.html" %}
 {% block title %}Sign in to continue{% endblock %}
+{% block main_class %}page-center{% endblock %}
 {% block main %}
-<h1>Sign in to see this page</h1>
-<p>Open the sign-in link we emailed you. If it has expired, or you opened it on another device,
-<a href="/sign-in-again">get a new link</a>.</p>
+<div class="card card-raised panel">
+  <span class="panel-icon">{{ icon("key", 40, 1.8) }}</span>
+  <h1>Sign in to see this page</h1>
+  <p>Open the link we emailed you. Expired, or on another device? Get a new one.</p>
+  <a class="btn btn-lg" href="/sign-in-again">Get a new link</a>
+</div>
 {% endblock %}

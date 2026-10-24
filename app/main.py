@@ -5,18 +5,24 @@ import re
 import time
 import uuid
 from collections.abc import Awaitable, Callable
+from http import HTTPStatus
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.exception_handlers import http_exception_handler, request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import Headers
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app import __version__, web
 from app.config import get_settings
 from app.db import database_is_reachable
 from app.logging_config import configure_logging
+from app.web import common
 
 STATIC = Path(__file__).resolve().parent / "static"
 
@@ -76,6 +82,11 @@ class LimitBody:
         await self.app(scope, counted, send)
 
 
+def wants_a_page(request: Request) -> bool:
+    """A browser opening an address, as opposed to a script or a stylesheet, font or image it loads."""
+    return request.method in ("GET", "HEAD") and "text/html" in request.headers.get("accept", "")
+
+
 def request_id_for(request: Request) -> str:
     supplied = request.headers.get("x-request-id", "")
     return supplied if REQUEST_ID.fullmatch(supplied) else uuid.uuid4().hex
@@ -127,6 +138,20 @@ def create_app() -> FastAPI:
         if database_is_reachable():
             return JSONResponse({"status": "ready"})
         return JSONResponse({"status": "database unavailable"}, status_code=503)
+
+    @app.exception_handler(StarletteHTTPException)
+    async def not_found(request: Request, exc: StarletteHTTPException) -> Response:
+        """A browser opening an address no page lives at gets the site's own page, not the framework's JSON."""
+        if exc.status_code == HTTPStatus.NOT_FOUND and wants_a_page(request):
+            return await run_in_threadpool(common.missing_page, request)
+        return await http_exception_handler(request, exc)
+
+    @app.exception_handler(RequestValidationError)
+    async def malformed_address(request: Request, exc: RequestValidationError) -> Response:
+        """A run link cut short (its id no longer an id) is a page that doesn't exist, as far as a browser goes."""
+        if wants_a_page(request) and all(error["loc"][0] == "path" for error in exc.errors()):
+            return await run_in_threadpool(common.missing_page, request)
+        return await request_validation_exception_handler(request, exc)
 
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
     app.include_router(web.router)
