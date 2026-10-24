@@ -277,6 +277,23 @@ def test_events_must_come_from_the_search_results() -> None:
     assert answer.cost_usd == Decimal("0.0380")
 
 
+def test_a_url_that_cannot_be_read_is_skipped_not_raised() -> None:
+    broken = {"type": "web_search_result", "url": "http://[broken/", "title": "?", "encrypted_content": "e3"}
+    turn = [SEARCH_TURN[0], {**SEARCH_TURN[1], "content": [*SEARCH_TURN[1]["content"], broken]}, SEARCH_TURN[2]]
+
+    def responder(body: dict[str, Any], i: int) -> dict[str, Any]:
+        if i == 0:
+            return message(turn, server_tool_use={"web_search_requests": 1})
+        events = [
+            event("Pipeline Week", "https://events.example/pipeline-week", "2026-12-02"),
+            event("Broken Expo", "http://[broken/", "2026-11-20"),  # e.g. written into a page Claude read
+        ]
+        return message([text_json({"events": events})])
+
+    llm, _ = make_llm(responder)
+    assert [e.name for e in llm.find_events(analysis(), today=TODAY).value] == ["Pipeline Week"]
+
+
 def test_a_paused_search_turn_is_continued() -> None:
     def responder(body: dict[str, Any], i: int) -> dict[str, Any]:
         if i == 0:
@@ -289,6 +306,29 @@ def test_a_paused_search_turn_is_continued() -> None:
     llm, api = make_llm(responder)
     assert [e.name for e in llm.find_events(analysis(), today=TODAY).value] == ["Pipeline Week"]
     assert len(api.requests) == 3
+
+
+def test_a_paused_turn_is_finished_without_searching_again() -> None:
+    tools = [{"type": "web_search_20260209", "name": "web_search", "max_uses": 6}]
+    pending = {"type": "server_tool_use", "id": "srvtoolu_2", "name": "web_search", "input": {"query": "revops"}}
+
+    def responder(body: dict[str, Any], i: int) -> dict[str, Any]:
+        if i == 0:
+            assert "tool_choice" not in body
+            paused = [*SEARCH_TURN[:2], pending]  # 2 of the 6 searches used, and a third asked for
+            return message(paused, stop="pause_turn", server_tool_use={"web_search_requests": 2})
+        if i == 1:  # searches left or not, the paused turn goes back as-is, and Claude writes up what it found
+            assert body["tool_choice"] == {"type": "none"}
+            assert body["messages"][-1]["content"][-1]["id"] == "srvtoolu_2"
+            return message([SEARCH_TURN[2]])
+        assert "Nov 12-13 in Austin" in body["messages"][0]["content"]  # the write-up reaches the list of events
+        return message([text_json({"events": [event("Pipeline Week", "https://events.example/pipeline-week", None)]})])
+
+    llm, api = make_llm(responder)
+    assert [e.name for e in llm.find_events(analysis(), today=TODAY).value] == ["Pipeline Week"]
+    assert len(api.requests) == 3
+    # The same tools on every part: a changed definition would invalidate the thinking in the paused turn.
+    assert [request["tools"] for request in api.requests[:2]] == [tools] * 2
 
 
 def test_every_paused_part_is_sent_back_when_a_turn_pauses_twice() -> None:
