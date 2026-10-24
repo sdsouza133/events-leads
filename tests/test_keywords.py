@@ -2,8 +2,8 @@ from datetime import date
 
 import pytest
 
-from app.pipeline.keywords import GOING, MAX_QUERIES, WENT, build_queries, hashtag, phrase
-from app.schemas import EventSuggestion
+from app.pipeline.keywords import GOING, WENT, build_queries, hashtag, phrase
+from app.schemas import MAX_QUERIES, EventSuggestion
 
 TODAY = date(2026, 10, 24)
 

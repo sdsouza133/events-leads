@@ -120,6 +120,14 @@ def settle(
     _close(session, spend_id, actual_usd, SpendStatus.SETTLED, units=units, unit=unit, now=now)
 
 
+def settle_in_full(session: Session, spend_id: int, *, now: datetime | None = None) -> None:
+    """The call's cost is unknown and it may have been billed: count the whole reservation (ADR 0002)."""
+    entry = session.get(SpendEntry, spend_id)
+    if entry is None:
+        raise LookupError(f"spend entry {spend_id} does not exist")
+    settle(session, spend_id, entry.estimated_usd, now=now)
+
+
 def release(session: Session, spend_id: int, *, now: datetime | None = None) -> None:
     """The call didn't happen (or cost nothing): give the reservation back."""
     _close(session, spend_id, Decimal(0), SpendStatus.RELEASED, now=now)

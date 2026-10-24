@@ -26,6 +26,10 @@ What to do when operating the service. Keep it current: every incident should le
   reservations closed.
 - A run stuck in `analyzing`: look up its jobs by `run_id`. A job `queued` with a future `run_after` is waiting
   (retry backoff, or the daily cap: it resumes after midnight UTC). A job `failed` should have failed its run too.
+- A run stuck in `collecting`: look at its `run_events`. `searching` with an `apify_run_id` is polled every
+  `SEARCH_POLL_SECONDS`; the run is visible in the Apify console under that id. After 30 minutes the search is
+  given up and tried once more. `pending` with no `apify_run_id` is either waiting for another run's search of the
+  same event or, if the run is `waiting_for_budget`, for the next UTC day. `error` says why an event failed.
 
 ## Pausing spend immediately
 

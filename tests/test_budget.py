@@ -79,6 +79,15 @@ def test_settling_twice_counts_once(db: Session) -> None:
     assert _day(db).spent_usd == Decimal("0.80")
 
 
+def test_settling_in_full_counts_the_whole_estimate(db: Session) -> None:
+    spend_id = budget.reserve(db, provider="apify", estimated_usd=Decimal("1.00"), daily_cap_usd=CAP, now=NOW)
+    budget.settle_in_full(db, spend_id, now=NOW)
+    db.commit()
+    assert _day(db).spent_usd == Decimal("1.00")
+    with pytest.raises(LookupError):
+        budget.settle_in_full(db, spend_id + 1, now=NOW)
+
+
 def test_release_gives_the_reservation_back(db: Session) -> None:
     run = make_run(db)
     spend_id = budget.reserve(

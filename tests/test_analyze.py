@@ -17,12 +17,11 @@ from app.pipeline import analyze
 from app.pipeline.analyze import ANALYZE_SITE, FIND_EVENTS
 from app.pipeline.base import JobContext
 from app.pipeline.jobs import JOBS
-from app.pipeline.keywords import MAX_QUERIES
 from app.providers.fakes import FakeFetcher, FakeLlm
 from app.providers.registry import build_providers
 from app.providers.types import Answer, FetchedPage, ProviderError
 from app.providers.webfetch import FetchError
-from app.schemas import EventSuggestion, SiteAnalysis
+from app.schemas import MAX_QUERIES, EventSuggestion, SiteAnalysis
 from app.worker import Worker
 from tests.factories import make_run
 

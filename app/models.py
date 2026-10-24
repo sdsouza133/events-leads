@@ -89,6 +89,13 @@ class SpendStatus(enum.StrEnum):
     RELEASED = "released"
 
 
+class RunEventStatus(enum.StrEnum):
+    PENDING = "pending"  # not searched yet, or waiting to search again
+    SEARCHING = "searching"
+    DONE = "done"
+    FAILED = "failed"  # couldn't be searched; the run goes on without it
+
+
 # ----------------------------------------------------------------------------------------------- people who use it
 class Account(Base):
     """A requester or operator, identified by a work email."""
@@ -189,10 +196,19 @@ class RunEvent(Base):
     event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"), primary_key=True)
     source: Mapped[str] = mapped_column(String(16), comment="suggested or requester")
     queries: Mapped[list[Any]] = mapped_column(default=list, server_default=text("'[]'::jsonb"))
-    status: Mapped[str] = mapped_column(String(16), default="pending")
+    status: Mapped[RunEventStatus] = mapped_column(
+        _enum(RunEventStatus, "run_event_status"), default=RunEventStatus.PENDING
+    )
     apify_run_id: Mapped[str | None] = mapped_column(String(64))
     spend_id: Mapped[int | None] = mapped_column(BigInteger, comment="Reservation for the current search")
-    error: Mapped[str | None] = mapped_column(Text)
+    search_queries: Mapped[list[Any]] = mapped_column(
+        default=list,
+        server_default=text("'[]'::jsonb"),
+        comment="The queries the current search covers; the others came from the cache",
+    )
+    search_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    search_started_at: Mapped[datetime | None]
+    error: Mapped[str | None] = mapped_column(Text, comment="Internal; never shown to the requester")
     collected_at: Mapped[datetime | None]
 
 
