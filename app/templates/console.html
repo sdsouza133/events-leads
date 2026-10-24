@@ -28,10 +28,11 @@ new requests, and jobs about to spend wait until it's unset.</p>
 <h2 id="queue">Queue</h2>
 <p>{{ queue.due }} {{ "job" if queue.due == 1 else "jobs" }} due now, {{ queue.later }} waiting for later,
 {{ queue.running }} running, {{ queue.failed }} failed.</p>
-{% if manual_ai or questions %}
-<p>{% if manual_ai %}Manual AI mode is on: there's no Anthropic key, so operators answer Claude's questions. {% endif %}
-{{ questions }} {{ "question is" if questions == 1 else "questions are" }} waiting for an answer at
-<code>/admin/api/tasks</code>.</p>
+{% if manual_ai %}
+<p>Manual AI mode is on: there's no Anthropic key, so operators answer Claude's questions.
+{{ questions }} {{ "question is" if questions == 1 else "questions are" }} waiting for an answer
+{%- if operator_api %} at <code>/admin/api/tasks</code>.{% else %}, but <code>OPERATOR_API_TOKEN</code> isn't set on
+this service, so the operator API is off: set it to answer them.{% endif %}</p>
 {% endif %}
 {% if failed_jobs %}
 <div class="table-wrap" role="region" aria-labelledby="failed-caption" tabindex="0">

@@ -95,8 +95,10 @@ console says how many are waiting. `OPERATOR_API_TOKEN` must be set: a random va
 ```sh
 curl -H "Authorization: Bearer $OPERATOR_API_TOKEN" https://events.theb2bdynamics.com/admin/api/tasks
 curl -X POST -H "Authorization: Bearer $OPERATOR_API_TOKEN" -H "Content-Type: application/json" \
-  --data @answer.json https://events.theb2bdynamics.com/admin/api/tasks/<id>
+  --data @answer.json https://events.theb2bdynamics.com/admin/api/tasks/123
 ```
+
+Replace `123` with the task's `id`.
 
 Each task lists its `question` (the website's pages; the analysis and today's date; or the posts to label), the run
 waiting on it, and the `answer_schema` its answer must fit. A 422 lists what's wrong in `problems`: fix it and post

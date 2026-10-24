@@ -2,9 +2,10 @@
 operator answers through the operator API (`app/web/operator_api.py`). The job that asked waits and asks again, and
 once the answer is in it carries on as if Claude had answered, at no cost.
 
-A task is found again by what identifies its question (the website, the analysis, the posts), not by everything in
-it, so a page that reads a little differently the next time still finds its task. Answers are checked against the
-schemas Claude's answers are held to, before they're stored.
+A task is found again by what identifies its question: the website for its analysis, the run for its events, and the
+posts as they read for their labels. A website that reads a little differently the next time still finds its task;
+a post edited since it was asked about gets a new one, since its label is about what it says. Answers are checked
+against the schemas Claude's answers are held to, before they're stored.
 """
 
 import hashlib
@@ -81,7 +82,7 @@ class ManualLlm:
     def label_posts(self, event_name: str, posts: list[PostToLabel]) -> Answer[list[LabeledPost]]:
         if not posts:
             return Answer([], FREE, MODEL)
-        identity = {"event": event_name, "posts": sorted(post.post_id for post in posts)}
+        identity = {"event": event_name, "posts": sorted((p.post_id, p.author_headline or "", p.text) for p in posts)}
         question = {"event": event_name, "posts": [post.model_dump(mode="json") for post in posts]}
         given = LabelsAnswer.model_validate(_ask(LABEL_POSTS, identity=identity, question=question)).labels
         labels = {label.post_id: label for label in given}
