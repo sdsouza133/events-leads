@@ -310,7 +310,12 @@ class AnthropicLlm:
         except anthropic.APIStatusError as exc:  # an error answer is not billed
             retryable = exc.status_code == 429 or exc.status_code >= 500  # noqa: PLR2004
             raise ProviderError(f"the Claude API answered {exc.status_code}", retryable=retryable) from exc
-        body = raw.json()
+        try:
+            body = raw.json()
+        except ValueError as exc:  # a 200 that isn't JSON, e.g. a proxy's error page
+            raise ProviderError(
+                "the Claude API sent an answer we couldn't read", retryable=True, cost_usd=None
+            ) from exc
         if not isinstance(body, dict):
             raise ProviderError("the Claude API sent an answer we couldn't read", retryable=True, cost_usd=None)
         billed = _billed(body)

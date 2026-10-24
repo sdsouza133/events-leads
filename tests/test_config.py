@@ -61,8 +61,9 @@ def test_legacy_postgres_scheme_is_accepted_and_converted() -> None:
     assert settings.sqlalchemy_url == "postgresql+psycopg://u:p@db.example.com:5432/postgres"
 
 
-def test_a_blank_secret_falls_back_to_the_dev_default(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SECRET_KEY", "")
+@pytest.mark.parametrize("blank", ["", "   ", "\t"])
+def test_a_blank_secret_falls_back_to_the_dev_default(monkeypatch: pytest.MonkeyPatch, blank: str) -> None:
+    monkeypatch.setenv("SECRET_KEY", blank)
     assert Settings(env="dev").secret_key.get_secret_value().startswith("dev-only")
 
 
@@ -71,9 +72,10 @@ def test_an_unset_env_means_dev(monkeypatch: pytest.MonkeyPatch) -> None:
     assert Settings().env == "dev"
 
 
-def test_a_blank_env_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("blank", ["", "  "])
+def test_a_blank_env_is_refused(monkeypatch: pytest.MonkeyPatch, blank: str) -> None:
     # Falling back to "dev" here would skip the staging and production checks.
-    monkeypatch.setenv("ENV", "")
+    monkeypatch.setenv("ENV", blank)
     with pytest.raises(ValidationError, match="ENV is set but blank"):
         Settings()
 

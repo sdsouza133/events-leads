@@ -2,6 +2,7 @@ import random
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app import queue
@@ -64,6 +65,13 @@ def test_oldest_due_job_comes_first_and_kinds_can_be_filtered(db: Session) -> No
 
 
 @needs_db
+def test_a_worker_for_no_kinds_takes_nothing(db: Session) -> None:
+    queue.enqueue(db, "analyze", run_after=NOW)
+    db.commit()
+    assert queue.claim(db, "w", kinds=[], now=NOW) is None
+
+
+@needs_db
 def test_two_workers_never_get_the_same_job(db: Session) -> None:
     first_id = queue.enqueue(db, "analyze", run_after=NOW)
     second_id = queue.enqueue(db, "analyze", run_after=NOW)
@@ -71,6 +79,7 @@ def test_two_workers_never_get_the_same_job(db: Session) -> None:
 
     other: Session = get_sessionmaker()()
     try:
+        other.execute(text("SET LOCAL lock_timeout = '2s'"))  # without SKIP LOCKED: fail fast, don't hang
         held = queue.claim(db, "worker-a", now=NOW)  # row lock held: this transaction stays open
         taken = queue.claim(other, "worker-b", now=NOW)  # must skip the locked row, not wait for it
         assert held is not None
