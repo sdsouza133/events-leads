@@ -19,7 +19,8 @@ What to do when operating the service. Keep it current: every incident should le
 ## The worker
 
 - Start: `python -m app.worker` (locally: `make worker`). Same image as the web service, different start command.
-- SIGTERM (a redeploy) lets the current job finish, then exits. A job cut off by a hard kill is put back after
+- SIGTERM (a redeploy) lets the current job finish, then exits. The job starts no new paid call meanwhile: one about
+  to make a call is put back for the next worker. A job cut off by a hard kill is put back after
   `WORKER_STALE_AFTER_SECONDS` (5 minutes) and its open spend reservation is closed by the rules in ADR 0002.
 - Logs: every job writes `job started` and `job ended` (with `job_id`, `kind`, `run_id`, `ms`); failures write
   `job failed` with the error and whether it will be retried. `housekeeping` lines report jobs put back and
@@ -63,10 +64,11 @@ latest failed jobs (their `last_error`).
 
 ## Pausing spend immediately
 
-Set `PAUSE_NEW_RUNS=true` on both services, web and worker. The start form takes no new requests, and every job about
-to call Claude, Apify, Apollo or Reoon is put back and checked again every 5 minutes (the log says `job paused`). A
-call already made finishes, and searches already running on Apify are still collected. Unset it and everything carries
-on where it stopped. To stop the job running right now as well, scale the worker to zero.
+Set `PAUSE_NEW_RUNS=true` on both services, web and worker; Railway restarts them with it. The start form takes no new
+requests, and every job about to call Claude, Apify, Apollo or Reoon is put back and checked again every 5 minutes
+(the log says `job paused`). That includes the job a worker was running when it restarted: it makes no further paid
+call. A call already under way finishes, and searches already running on Apify are still collected. Unset it and
+everything carries on where it stopped. Scaling the worker to zero stops paid calls the same way.
 
 ## Rotating a secret
 
