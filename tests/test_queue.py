@@ -164,8 +164,11 @@ def test_jobs_of_a_dead_worker_are_released(db: Session) -> None:
     queue.claim(db, "dead-worker", now=NOW)
     db.commit()
 
-    assert queue.release_stale(db, timedelta(minutes=15), now=NOW + timedelta(minutes=5)) == 0
-    assert queue.release_stale(db, timedelta(minutes=15), now=NOW + timedelta(minutes=20)) == 2
+    early = queue.release_stale(db, timedelta(minutes=15), now=NOW + timedelta(minutes=5))
+    assert (early.requeued, early.given_up) == (0, [])
+    late = queue.release_stale(db, timedelta(minutes=15), now=NOW + timedelta(minutes=20))
+    assert late.requeued == 1
+    assert [(g.id, g.kind) for g in late.given_up] == [(last_try_id, "collect")]
     retried, gave_up = db.get(Job, retry_id), db.get(Job, last_try_id)
     assert retried is not None
     assert gave_up is not None
@@ -228,3 +231,17 @@ def test_a_finished_job_cannot_be_finished_again(db: Session) -> None:
     job = db.get(Job, job_id)
     assert job is not None
     assert job.status == JobStatus.DONE
+
+
+@needs_db
+def test_a_heartbeat_keeps_a_long_job_from_being_released(db: Session) -> None:
+    job_id = queue.enqueue(db, "find_events", run_after=NOW)
+    assert job_id is not None
+    db.commit()
+    queue.claim(db, "worker-a", now=NOW)
+    db.commit()
+    assert queue.heartbeat(db, job_id, "worker-a", now=NOW + timedelta(minutes=10))
+    db.commit()
+    released = queue.release_stale(db, timedelta(minutes=15), now=NOW + timedelta(minutes=20))
+    assert released.requeued == 0  # it beat 10 minutes ago, inside the 15-minute window
+    assert not queue.heartbeat(db, job_id, "worker-b", now=NOW + timedelta(minutes=21))  # not worker-b's job

@@ -88,3 +88,13 @@ def test_tests_never_read_a_dotenv_file(tmp_path: Path, monkeypatch: pytest.Monk
 def test_urls_that_already_name_the_driver_are_left_alone() -> None:
     url = "postgresql+psycopg://u:p@db.example.com:5432/postgres"
     assert Settings(database_url=url).sqlalchemy_url == url
+
+
+def test_the_analysis_budget_fits_inside_the_run_budget() -> None:
+    with pytest.raises(ValidationError, match="ANALYSIS_BUDGET_USD"):
+        Settings(run_budget_usd="1.00", analysis_budget_usd="2.00")
+
+
+def test_a_job_gets_several_heartbeats_before_it_counts_as_stale() -> None:
+    with pytest.raises(ValidationError, match="three heartbeats"):
+        Settings(worker_heartbeat_seconds=60, worker_stale_after_seconds=120)

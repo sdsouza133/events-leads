@@ -1,6 +1,6 @@
 import threading
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -158,3 +158,65 @@ def test_concurrent_workers_cannot_pass_the_daily_cap(db: Session) -> None:
     assert _day(db).reserved_usd == Decimal(18)
     reserved_on_runs = db.scalars(select(Run.reserved_usd).where(Run.id.in_(run_ids))).all()
     assert sum(reserved_on_runs, Decimal(0)) == Decimal(18)
+
+
+# ------------------------------------------------------------------------------------- recovery (ADR 0002)
+def test_a_lower_cap_can_be_checked_than_the_whole_run_budget(db: Session) -> None:
+    run = make_run(db, budget_usd=Decimal("3.00"))
+    analysis = Decimal("0.50")
+    budget.reserve(
+        db, provider="claude", estimated_usd=Decimal("0.40"), daily_cap_usd=CAP, run_id=run.id, run_cap_usd=analysis
+    )
+    with pytest.raises(BudgetExceededError) as exc:
+        budget.reserve(
+            db, provider="claude", estimated_usd=Decimal("0.20"), daily_cap_usd=CAP, run_id=run.id, run_cap_usd=analysis
+        )
+    assert (exc.value.scope, exc.value.available) == ("run", Decimal("0.10"))
+
+
+def _open(db: Session, *, started: bool, key: str = "r1:analyze_site", estimate: str = "0.15") -> int:
+    spend_id = budget.reserve(
+        db, provider="claude", estimated_usd=Decimal(estimate), daily_cap_usd=CAP, step_key=key, now=NOW
+    )
+    if started:
+        budget.mark_started(db, spend_id, now=NOW)
+    db.commit()
+    return spend_id
+
+
+def _entry(db: Session, spend_id: int) -> SpendEntry:
+    entry = db.get(SpendEntry, spend_id, populate_existing=True)
+    assert entry is not None
+    return entry
+
+
+def test_recover_releases_a_call_that_never_started_and_settles_one_that_did(db: Session) -> None:
+    never = _open(db, started=False)
+    maybe = _open(db, started=True)
+    other_step = _open(db, started=True, key="r1:find_events")
+    assert budget.recover(db, "r1:analyze_site", now=NOW) == 2
+    db.commit()
+    assert (_entry(db, never).status, _entry(db, never).actual_usd) == (SpendStatus.RELEASED, Decimal(0))
+    assert (_entry(db, maybe).status, _entry(db, maybe).actual_usd) == (SpendStatus.SETTLED, Decimal("0.15"))
+    assert _entry(db, other_step).status == SpendStatus.RESERVED  # another step's reservation is left alone
+    assert _day(db).spent_usd == Decimal("0.15")
+    assert budget.recover(db, "r1:analyze_site", now=NOW) == 0  # nothing left to close
+
+
+def test_mark_started_keeps_the_first_time(db: Session) -> None:
+    spend_id = _open(db, started=True)
+    budget.mark_started(db, spend_id, now=NOW.replace(hour=23, minute=59))
+    assert _entry(db, spend_id).started_at == NOW
+    with pytest.raises(LookupError):
+        budget.mark_started(db, 999_999)
+
+
+def test_sweep_closes_only_reservations_open_too_long(db: Session) -> None:
+    old_unstarted = _open(db, started=False, key="r1:a")
+    old_started = _open(db, started=True, key="r1:b")
+    later = datetime.now(UTC) + timedelta(hours=2)
+    assert budget.sweep(db, timedelta(hours=3), now=later) == 0  # made under three hours before `later`
+    assert budget.sweep(db, timedelta(hours=1), now=later) == 2
+    db.commit()
+    assert _entry(db, old_unstarted).status == SpendStatus.RELEASED
+    assert _entry(db, old_started).status == SpendStatus.SETTLED
