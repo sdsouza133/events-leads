@@ -308,20 +308,28 @@ def test_a_paused_search_turn_is_continued() -> None:
     assert len(api.requests) == 3
 
 
-def test_the_web_search_limit_covers_the_whole_research_not_each_paused_part() -> None:
+def test_out_of_searches_a_paused_turn_is_finished_without_searching() -> None:
+    tools = [{"type": "web_search_20260209", "name": "web_search", "max_uses": 6}]
+    pending = {"type": "server_tool_use", "id": "srvtoolu_2", "name": "web_search", "input": {"query": "revops"}}
+
     def responder(body: dict[str, Any], i: int) -> dict[str, Any]:
         if i == 0:
-            assert body["tools"][0]["max_uses"] == 6
             return message(SEARCH_TURN[:2], stop="pause_turn", server_tool_use={"web_search_requests": 4})
-        if i == 1:
-            assert body["tools"][0]["max_uses"] == 2  # what's left of the 6
-            return message(SEARCH_TURN[:2], stop="pause_turn", server_tool_use={"web_search_requests": 2})
-        assert "tools" not in body  # out of searches, so no third part: straight on to the list of events
+        if i == 1:  # 2 of the 6 left: Claude carries on as it was
+            assert "tool_choice" not in body
+            return message([pending], stop="pause_turn", server_tool_use={"web_search_requests": 2})
+        if i == 2:  # none left: the paused turn goes back as-is, and Claude writes up what it found
+            assert body["tool_choice"] == {"type": "none"}
+            assert body["messages"][-1]["content"][-1]["id"] == "srvtoolu_2"
+            return message([SEARCH_TURN[2]])
+        assert "Nov 12-13 in Austin" in body["messages"][0]["content"]  # the write-up reaches the list of events
         return message([text_json({"events": [event("Pipeline Week", "https://events.example/pipeline-week", None)]})])
 
     llm, api = make_llm(responder)
     assert [e.name for e in llm.find_events(analysis(), today=TODAY).value] == ["Pipeline Week"]
-    assert len(api.requests) == 3
+    assert len(api.requests) == 4
+    # The same tools on every part: a changed definition would invalidate the thinking in the paused turn.
+    assert [request["tools"] for request in api.requests[:3]] == [tools] * 3
 
 
 def test_every_paused_part_is_sent_back_when_a_turn_pauses_twice() -> None:

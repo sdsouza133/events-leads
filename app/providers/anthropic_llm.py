@@ -251,7 +251,12 @@ class AnthropicLlm:
         notes: list[str] = []
         results: dict[str, str | None] = {}
         cost = Decimal(0)
-        searches_left = self._max_web_searches  # for the whole research: each paused part is a request of its own
+        # The search limit is for the whole research, but max_uses caps one request, and it has to stay the same on
+        # every part: a changed tool definition invalidates the thinking in the paused turn (a 400 where the API
+        # enforces that). So a part that starts with searches left may use up to max_uses again. Once they're used
+        # up, tool_choice (which that check leaves out) has Claude finish the turn, writing up what it found, without
+        # searching again.
+        searches_left = self._max_web_searches
         for _ in range(MAX_PAUSE_CONTINUATIONS + 1):
             try:
                 response, call_cost = self._call(
@@ -260,7 +265,8 @@ class AnthropicLlm:
                     max_tokens=16000,
                     system=RESEARCH_SYSTEM,
                     messages=messages,
-                    tools=[{**WEB_SEARCH, "max_uses": searches_left}],
+                    tools=[{**WEB_SEARCH, "max_uses": self._max_web_searches}],
+                    tool_choice=None if searches_left > 0 else {"type": "none"},
                     timeout=300.0,
                 )
             except ProviderError as exc:
@@ -268,8 +274,8 @@ class AnthropicLlm:
             cost += call_cost
             _collect(response.content, notes, results)
             searches_left -= _searches(response)
-            if response.stop_reason != "pause_turn" or searches_left <= 0:
-                break  # finished, or out of searches: what it found so far is the research
+            if response.stop_reason != "pause_turn":
+                break
             # A long server-tool turn paused: send it back as-is, after the parts already sent (consecutive
             # assistant messages form one turn), and let Claude carry on.
             messages = [*messages, {"role": "assistant", "content": response.content}]
@@ -285,6 +291,7 @@ class AnthropicLlm:
         messages: list[dict[str, Any]],
         output_format: type[BaseModel] | None = None,
         tools: list[dict[str, Any]] | None = None,
+        tool_choice: dict[str, Any] | None = None,
         timeout: float | None = None,
     ) -> tuple[Any, Decimal]:
         """The response and what it was billed. Failures after Claude has answered carry that cost too."""
@@ -297,6 +304,8 @@ class AnthropicLlm:
         }
         if tools:
             kwargs["tools"] = tools
+        if tool_choice:
+            kwargs["tool_choice"] = tool_choice
         if self._fallbacks and model in SERVER_FALLBACK_MODELS:
             kwargs["betas"] = [FALLBACK_BETA]
             kwargs["fallbacks"] = "default"
