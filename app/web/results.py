@@ -1,7 +1,8 @@
-"""A finished run's list: the table on its page and the CSV download (issue #8, FR-8).
+"""A finished run's list: the cards on its page and the CSV download (issue #8, FR-8).
 
 The list is the leads enrich included, best first: the highest ICP score, then the most telling post (a speaker
-before an attendee), then by name. It stays available for RESULTS_DAYS after the run finished. After that the page
+before an attendee), then by name. The page shows each lead as a card, and can show only the speakers, exhibitors,
+people going or people who went. It stays available for RESULTS_DAYS after the run finished. After that the page
 says so, the CSV is gone, and the retention job deletes the data.
 """
 
@@ -29,6 +30,15 @@ log = logging.getLogger(__name__)
 router = APIRouter()
 
 ATTENDANCE = {"speaking": "Speaking", "exhibiting": "Exhibiting", "attending": "Going", "attended": "Went"}
+TONES = {"Speaking": "warm", "Exhibiting": "accent", "Going": "ok", "Went": "neutral"}
+MATCHES = {
+    "title": "title",
+    "headline": "title",
+    "seniority": "seniority",
+    "industry": "industry",
+    "company": "company size",
+}
+"""What each reason the ICP score gives is about, by its first word. A headline stands in for a missing title."""
 COLUMNS = ["Name", "Title", "Company", "Email", "LinkedIn", "Event", "Attendance", "Post", "ICP score", "Why they fit"]
 FORMULA_STARTS = ("=", "+", "-", "@", "\t", "\r", "\n")
 """A cell starting with one of these is run as a formula when the CSV is opened in a spreadsheet (CSV injection)."""
@@ -47,24 +57,75 @@ class Row:
     score: int
     reasons: list[str]
 
+    @property
+    def initials(self) -> str:
+        words = self.name.split()
+        return "".join(word[0] for word in words[:1] + words[1:][-1:]).upper()
+
+    @property
+    def tone(self) -> str:
+        return TONES.get(self.attendance, "neutral")
+
+    @property
+    def matches(self) -> str:
+        """Why they fit, in words: 'Matches on title, seniority and industry'."""
+        about = dict.fromkeys(MATCHES.get(reason.split(" ", 1)[0], "") for reason in self.reasons)
+        named = [name for name in about if name]
+        return f"Matches on {emails.together(named)}" if named else ""
+
+
+@dataclass(frozen=True)
+class Filter:
+    label: str
+    count: int
+    href: str
+    current: bool
+
 
 def show(
-    request: Request, session: Session, run: Run, account: Account, settings: Settings, *, status_code: int = 200
+    request: Request,
+    session: Session,
+    run: Run,
+    account: Account,
+    settings: Settings,
+    *,
+    only: str = "",
+    status_code: int = 200,
 ) -> HTMLResponse:
-    """The run's page once it has finished: its list, or that it has expired."""
+    """The run's page once it has finished: its list (all of it, or only one kind of attendee), or that it has
+    expired."""
     now = common.now()
     found = [] if expired(run, now) else rows(session, run)
     events = list(dict.fromkeys(row.event for row in found))
+    wanted = only.capitalize()
+    showing = wanted if wanted in TONES and any(row.attendance == wanted for row in found) else ""  # else: all
     context = {
         "account": account,
         "run": run,
         "rows": found,
+        "shown": [row for row in found if not showing or row.attendance == showing],
+        "filters": _filters(run, found, showing),
         "events": emails.together(events),
         "expired": expired(run, now),
-        "until": _day(run.results_expire_at),
+        "until": _short_day(run.results_expire_at),
         "days": settings.results_days,
     }
     return page(request, "results.html", context, settings, status_code=status_code)
+
+
+def _filters(run: Run, found: list[Row], showing: str) -> list[Filter]:
+    """All, then each kind of attendee the list has, with how many."""
+    base = f"/runs/{run.id}"
+    kinds = [kind for kind in TONES if any(row.attendance == kind for row in found)]
+    return [Filter("All", len(found), f"{base}#leads", not showing)] + [
+        Filter(
+            kind,
+            sum(1 for row in found if row.attendance == kind),
+            f"{base}?only={kind.lower()}#leads",
+            kind == showing,
+        )
+        for kind in kinds
+    ]
 
 
 @router.get("/runs/{run_id}/leads.csv", response_model=None)
@@ -155,5 +216,5 @@ def _filename(run: Run) -> str:
     return f"leads-{re.sub(r'[^A-Za-z0-9.-]', '-', run.domain)}{when}.csv"
 
 
-def _day(value: datetime | None) -> str:
-    return f"{value.day} {value:%B %Y}" if value else ""
+def _short_day(value: datetime | None) -> str:
+    return f"{value.day} {value:%b}" if value else ""

@@ -501,6 +501,7 @@ def test_the_requester_sees_their_run_and_its_progress(client: TestClient, db: S
             "step": 0,
             "note": "",
         },
+        "found": None,  # nothing searched yet: the counters come once the plan is approved
     }
 
 

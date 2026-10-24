@@ -84,8 +84,10 @@ stateDiagram-v2
 5. **deliver**: the run is marked ready (results kept for 30 days) and a `deliver` job emails the requester the
    link, with `results:<run id>` as Resend's idempotency key. A send that would come more than 23 hours after the
    run was ready is dropped instead, since Resend only remembers a key for 24.
-   - **The list** (`app/web/results.py`): the run's page shows the people included, best fit first (ICP score,
-     then speakers and exhibitors before attendees), with a CSV of the same rows. Spreadsheet formulas can't ride
+   - **The list** (`app/web/results.py`): the run's page shows the people included as cards, best fit first (ICP
+     score, then speakers and exhibitors before attendees), filterable by how they're at the event, with a CSV of
+     the same rows. While the search runs, its page counts the posts found, the people seen at the events and the
+     verified emails so far (`run_page.found_so_far`), with a bar for how far along it is. Spreadsheet formulas can't ride
      along in the CSV: a cell starting with `=`, `+`, `-`, `@`, a tab or a carriage return gets a leading
      apostrophe. Links to posts and profiles are shown only if they're web addresses. Once `results_expire_at`
      has passed, the page says the list has expired and the CSV answers 410 Gone.

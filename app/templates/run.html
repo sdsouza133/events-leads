@@ -1,33 +1,56 @@
 {% extends "base.html" %}
+{% macro tracker(progress) -%}
+<ol class="tracker">
+  {% for step in progress.steps %}
+  {% set state = "done" if loop.index0 < progress.step else ("active" if loop.index0 == progress.step else "pending") %}
+  <li class="step is-{{ state }}" data-step="{{ loop.index0 }}">
+    <span class="step-mark" aria-hidden="true">
+      <span class="mark-done">{{ icon("check", 16, 2.8) }}</span>
+      <svg class="mark-active spinner" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke-width="2.6" stroke-linecap="round" focusable="false"><circle cx="12" cy="12" r="9" stroke="#e6e9ff"/><path d="M21 12a9 9 0 0 0-9-9" stroke="#3346e8"/></svg>
+      <span class="mark-pending"></span>
+    </span>
+    <span class="step-label">{{ step }}</span>
+    <span class="visually-hidden step-state">{{ {"done": "Done", "active": "In progress", "pending": "Up next"}[state] }}</span>
+  </li>
+  {% endfor %}
+</ol>
+<p class="visually-hidden" id="run-step" aria-live="polite"></p>
+<p class="run-note" id="run-note" role="status">{{ progress.note }}</p>
+{%- endmacro %}
 {% block title %}{{ run.domain }}{% endblock %}
 {% block main_class %}page-center{% endblock %}
 {% block main %}
+{% if found %}
+<div class="search" id="run" data-status-url="/runs/{{ run.id }}/status" data-status="{{ run.status }}" data-phase="{{ progress.phase }}">
+  <div class="search-head">
+    <span class="eyebrow">{{ run.domain }} · {{ events }} {{ "event" if events == 1 else "events" }}</span>
+    <h1>{{ label }}</h1>
+  </div>
+  <ul class="counters">
+    <li class="card counter"><span class="counter-value" id="found-posts">{{ "{:,}".format(found.posts) }}</span><span class="counter-label">posts found</span></li>
+    <li class="card counter"><span class="counter-value" id="found-people">{{ "{:,}".format(found.people) }}</span><span class="counter-label">people at your events</span></li>
+    <li class="card counter"><span class="counter-value is-accent" id="found-emails">{{ "{:,}".format(found.emails) }}</span><span class="counter-label">verified emails</span></li>
+  </ul>
+  <div class="card search-steps">
+    <progress id="found-percent" max="100" value="{{ found.percent }}" aria-label="How far along the search is">{{ found.percent }}%</progress>
+    {{ tracker(progress) }}
+  </div>
+  <p class="search-note"><span id="run-estimate"{% if progress.note %} hidden{% endif %}>About 10 minutes. </span>You can
+  close this tab: we'll email you when your list is ready.</p>
+</div>
+{% else %}
 <div class="card card-raised panel panel-steps" id="run" data-status-url="/runs/{{ run.id }}/status"
      data-status="{{ run.status }}"{% if progress %} data-phase="{{ progress.phase }}"{% endif %}>
   <span class="eyebrow">{{ run.domain }}</span>
   <h1>{{ label }}</h1>
   {% if progress %}
-  <ol class="tracker">
-    {% for step in progress.steps %}
-    {% set state = "done" if loop.index0 < progress.step else ("active" if loop.index0 == progress.step else "pending") %}
-    <li class="step is-{{ state }}" data-step="{{ loop.index0 }}">
-      <span class="step-mark" aria-hidden="true">
-        <span class="mark-done">{{ icon("check", 16, 2.8) }}</span>
-        <svg class="mark-active spinner" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke-width="2.6" stroke-linecap="round" focusable="false"><circle cx="12" cy="12" r="9" stroke="#e6e9ff"/><path d="M21 12a9 9 0 0 0-9-9" stroke="#3346e8"/></svg>
-        <span class="mark-pending"></span>
-      </span>
-      <span class="step-label">{{ step }}</span>
-      <span class="visually-hidden step-state">{{ {"done": "Done", "active": "In progress", "pending": "Up next"}[state] }}</span>
-    </li>
-    {% endfor %}
-  </ol>
-  <p class="visually-hidden" id="run-step" aria-live="polite"></p>
-  <p class="run-note" id="run-note" role="status">{{ progress.note }}</p>
-  <p class="soft-note">{% if progress.phase == "plan" %}Takes about 2 minutes. This page moves on by itself.{% else %}About
-  10 minutes. You can close this tab: we'll email you when your list is ready.{% endif %}</p>
+  {{ tracker(progress) }}
+  <p class="soft-note"><span id="run-estimate"{% if progress.note %} hidden{% endif %}>Takes about 2 minutes. </span>This
+  page moves on by itself.</p>
   {% else %}
   <p>{{ run.status_detail or "" }}</p>
   {% endif %}
 </div>
+{% endif %}
 {% endblock %}
 {% block scripts %}{% if progress %}<script src="/static/run.js" defer></script>{% endif %}{% endblock %}
