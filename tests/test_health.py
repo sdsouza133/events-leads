@@ -1,8 +1,11 @@
+from collections.abc import Iterator
+
 import pytest
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 from app import main
-from app.main import SECURITY_HEADERS, create_app
+from app.main import MAX_BODY_BYTES, SECURITY_HEADERS, TOO_LARGE, create_app
 
 
 @pytest.fixture
@@ -80,3 +83,48 @@ def test_a_crashing_route_still_gets_headers_a_request_id_and_a_log_line(caplog:
     records = [r for r in caplog.records if getattr(r, "request_id", None) == "req-1"]
     assert [r.getMessage() for r in records] == ["unhandled error", "request"]
     assert records[0].exc_info is not None
+
+
+def app_that_reads_bodies(read: list[int]) -> FastAPI:
+    app = create_app()
+
+    @app.post("/echo")
+    async def echo(request: Request) -> dict[str, int]:
+        body = await request.body()
+        read.append(len(body))
+        return {"bytes": len(body)}
+
+    return app
+
+
+def chunks(total: int, size: int = 64 * 1024) -> Iterator[bytes]:
+    """A body sent without a Content-Length (chunked)."""
+    while total > 0:
+        yield b"x" * min(size, total)
+        total -= size
+
+
+def test_a_body_declared_too_large_is_refused_before_it_is_read() -> None:
+    read: list[int] = []
+    client = TestClient(app_that_reads_bodies(read))
+    response = client.post("/echo", content=b"x" * (MAX_BODY_BYTES + 1), headers={"X-Request-ID": "big-1"})
+    assert (response.status_code, response.text) == (413, TOO_LARGE)
+    assert read == []  # the handler never ran
+    assert response.headers["X-Request-ID"] == "big-1"
+    assert response.headers["Content-Security-Policy"] == SECURITY_HEADERS["Content-Security-Policy"]
+    assert client.post("/echo", content=b"x" * MAX_BODY_BYTES).json() == {"bytes": MAX_BODY_BYTES}
+
+
+def test_a_body_without_a_length_is_cut_off_at_the_limit() -> None:
+    read: list[int] = []
+    client = TestClient(app_that_reads_bodies(read))
+    response = client.post("/echo", content=chunks(MAX_BODY_BYTES + 1))
+    assert response.status_code == 413
+    assert read == []
+    assert client.post("/echo", content=chunks(MAX_BODY_BYTES)).json() == {"bytes": MAX_BODY_BYTES}
+
+
+def test_a_form_too_large_is_refused_rather_than_called_unreadable(client: TestClient) -> None:
+    form = {"Content-Type": "application/x-www-form-urlencoded"}
+    response = client.post("/start", content=chunks(MAX_BODY_BYTES + 1), headers=form)
+    assert response.status_code == 413
