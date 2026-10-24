@@ -38,14 +38,15 @@ def results_email(
         people = "1 lead" if leads == 1 else f"{leads} leads"
         subject = f"Your list is ready: {people}"
         body = (
-            f"Your list is ready: {people} from {where}. Each one is speaking at, exhibiting at, going to or went "
-            f"to one of them, fits who you sell to, and has a verified work email.\n\n"
+            f"Your list is ready: {people} from {where}. Each one is going to "
+            f"{'it' if len(events) == 1 else 'one of these events'} or went, matches your buyers, and has a "
+            f"verified work email.\n\n"
             f"See it and download the CSV:\n{link}\n\nIt's yours for {days} days."
         )
     else:
         subject = "Your Event Leads search is done"
         body = (
-            f"We read the LinkedIn posts about {where}, but didn't find anyone there who fits who you sell to and "
+            f"We read the LinkedIn posts about {where}, but didn't find anyone there who matches your buyers and "
             f"has a verified work email.\n\nThe details are here:\n{link}"
         )
     return OutgoingEmail(to=to, subject=subject, text=f"Hi,\n\n{body}\n\nEvent Leads\n", key=f"results:{run_id}")

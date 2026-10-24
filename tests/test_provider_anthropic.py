@@ -235,6 +235,7 @@ SEARCH_TURN: list[dict[str, Any]] = [
 def event(name: str, source: str, start: str | None, **extra: object) -> dict[str, Any]:
     return {
         "name": name,
+        "series": None,
         "short_name": None,
         "hashtags": ["#RevOps"],
         "start_date": start,
@@ -300,17 +301,40 @@ def test_one_edition_of_a_series_makes_the_plan() -> None:
     assert "at most one event from any series" in api.requests[0]["system"]
 
 
+def test_the_series_claude_names_catches_editions_without_a_place() -> None:
+    source = "https://events.example/pipeline-week"
+
+    def responder(body: dict[str, Any], i: int) -> dict[str, Any]:
+        if i == 0:
+            return message(SEARCH_TURN, server_tool_use={"web_search_requests": 1})
+        events = [
+            event("Small Business Expo Dallas", source, "2026-11-04", location=None, series="Small Business Expo"),
+            event("Small Business Expo Austin", source, "2026-10-29", location=None, series="small business expo"),
+            event("360 Sales Summit", source, "2026-11-10"),
+            event("365 Sales Summit", source, "2026-11-12"),
+        ]
+        return message([text_json({"events": events})])
+
+    llm, _ = make_llm(responder)
+    found = llm.find_events(analysis(), today=TODAY).value
+    assert [e.name for e in found] == ["Small Business Expo Dallas", "360 Sales Summit", "365 Sales Summit"]
+
+
 @pytest.mark.parametrize(
-    ("name", "location", "series"),
+    ("name", "location", "named", "series"),
     [
-        ("Small Business Expo Dallas 2026", "Dallas, United States", "small business expo"),
-        ("SaaStr Annual 2026", "San Mateo, United States", "saastr annual"),
-        ("RevOps Summit", None, "revops summit"),
-        ("2026", "Online", "2026"),  # a name that is all year still has a key
+        ("Small Business Expo Dallas 2026", "Dallas, United States", None, "small business expo"),
+        ("SaaStr Annual 2026", "San Mateo, United States", None, "saastr annual"),
+        ("RevOps Summit", None, None, "revops summit"),
+        ("360 Sales Summit 2026", "Online", None, "360 sales summit"),  # only years go
+        ("2026", "Online", None, "2026"),  # a name that is all year still has a key
+        ("SBE Dallas 2026", None, "Small Business Expo", "small business expo"),  # the series Claude named wins
     ],
 )
-def test_a_series_is_its_name_without_the_year_or_the_place(name: str, location: str | None, series: str) -> None:
-    assert anthropic_llm._series(name, location) == series
+def test_a_series_is_its_name_without_the_year_or_the_place(
+    name: str, location: str | None, named: str | None, series: str
+) -> None:
+    assert anthropic_llm._series(name, location, named) == series
 
 
 def test_a_url_that_cannot_be_read_is_skipped_not_raised() -> None:

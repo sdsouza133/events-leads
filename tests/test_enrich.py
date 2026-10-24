@@ -670,7 +670,7 @@ def test_a_run_that_found_nobody_says_so(db: Session) -> None:
     run_jobs(db, worker(clock, StubApollo(), mailer=mailer), clock)
     [sent] = mailer.outbox
     assert sent.subject == "Your Event Leads search is done"
-    assert "didn't find anyone there who fits who you sell to" in sent.text
+    assert "didn't find anyone there who matches your buyers" in sent.text
 
 
 def test_no_email_for_a_run_canceled_before_it_went_out(db: Session) -> None:
