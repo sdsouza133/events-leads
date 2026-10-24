@@ -13,16 +13,15 @@ import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from datetime import date, datetime, timedelta
+from datetime import date
 from decimal import Decimal
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.orm import Session
 
-from app.db import rowcount, session_scope
+from app.db import session_scope
 from app.models import AiTask
 from app.providers.anthropic_llm import EVENTS_LOOK_AHEAD, EVENTS_LOOK_BACK, MAX_EVENTS
 from app.providers.types import Answer, AnswerPendingError, FetchedPage
@@ -33,7 +32,6 @@ FIND_EVENTS = "find_events"
 LABEL_POSTS = "label_posts"
 MODEL = "manual"
 FREE = Decimal(0)
-KEPT_FOR = timedelta(days=30)  # a question can quote people's posts: personal data is kept no longer than this
 
 ASKING_RUN: ContextVar[uuid.UUID | None] = ContextVar("asking_run", default=None)
 """The run whose job is asking, so a task can say which run waits on it. The worker sets it (`asking_for`)."""
@@ -118,11 +116,6 @@ def problems(question: dict[str, Any], answer: BaseModel) -> list[str]:
         if sorted(label.post_id for label in answer.labels) != asked:
             found.append("labels: give exactly one label for each post asked about")
     return found
-
-
-def forget_old_tasks(session: Session, *, now: datetime) -> int:
-    """Delete the questions asked more than 30 days ago, answered or not. Returns how many there were."""
-    return rowcount(session.execute(delete(AiTask).where(AiTask.created_at < now - KEPT_FOR)))
 
 
 @contextmanager

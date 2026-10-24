@@ -96,8 +96,8 @@ stateDiagram-v2
 - Paid calls follow ADR 0002: reserve, mark started, call, then settle or release by what the failure (or answer)
   says it cost. A retried step first closes what its earlier attempt left open.
 - A heartbeat thread keeps a long job's claim fresh. Every minute the worker puts back jobs whose worker went silent
-  (5 minutes by default; on the last attempt the job gives up, which fails its run) and closes spend reservations
-  left open for over an hour.
+  (5 minutes by default; on the last attempt the job gives up, which fails its run), closes spend reservations
+  left open for over an hour, and queues the retention job if no copy is waiting.
 - A worker that lost its claim to another (it was too slow) drops its writes; the new owner redoes the work.
 - `PAUSE_NEW_RUNS` stops spending without stopping the worker: every call to Claude, Apify, Apollo or Reoon first
   checks it, and a job that would make one is put back for 5 minutes, without using up an attempt. Polling an Apify
@@ -114,8 +114,26 @@ the job that asked is put back for 2 minutes without using up an attempt. Its sp
 nobody billable was asked. Operators answer through the operator API (`/admin/api/tasks`, with `OPERATOR_API_TOKEN`
 as a bearer token). An answer must fit the schema Claude's answer would have to, and its question: events within the
 window asked about, one label for each post. The job then carries on as if Claude had answered, at no cost. Each
-run asks its own events question, and the worker's housekeeping deletes questions after 30 days, answered or not,
-since they can quote people's posts.
+run asks its own events question, and the retention job deletes questions after 30 days, answered or not, since
+they can quote people's posts.
+
+### Deleting personal data
+
+The `retention` job (`app/pipeline/retention.py`, issue #18) runs every hour and deletes by age, so a second round
+right after the first finds nothing. After each round it defers itself an hour, which uses up no attempt; its dedupe
+key lets one copy at most wait or run, and an advisory lock keeps any two rounds from overlapping.
+
+- **Lists:** a `ready` run whose `results_expire_at` has passed becomes `expired` and its `run_leads` are deleted. A
+  run that failed or was canceled loses its leads 30 days after it stopped.
+- **Shared data:** `posts` fetched and `people` looked up (Apollo, or the email check) more than 30 days ago go
+  once no lead points at them; a post's `event_posts` and `post_labels` go with it. `post_labels`, `search_cache`
+  and `ai_tasks` older than 30 days go regardless.
+- **Everything else holding personal data or growing without end:** `outbox_emails` after 30 days, `rate_limits`
+  after a day, expired `login_tokens` and `sessions`, and `jobs` finished more than 30 days ago.
+
+A lead's person and post can't be deleted while the lead exists: `run_leads`' foreign keys to `people` and `posts`
+are `RESTRICT`. A list that is still shown keeps everyone on it, even when a run adds someone at the very moment
+their data is deleted: the round fails on the foreign key, nothing is deleted, and the retry leaves them be.
 
 ### The operator console
 
@@ -135,7 +153,7 @@ sign in at `/sign-in-again`, and their link opens the console.
 | `posts`, `event_posts`, `search_cache` | The shared post cache and which searches already ran |
 | `post_labels` | Attendance label per post and event, with the method (rule or model) |
 | `people` | One row per LinkedIn profile with cached Apollo data |
-| `run_leads` | The final list for a run, with ICP score and reasons |
+| `run_leads` | The final list for a run, with ICP score and reasons; its people and posts stay while it does |
 | `jobs` | The job queue |
 | `spend`, `budget_days` | Every paid call, and the running total per day for the daily cap |
 | `rate_limits` | Fixed-window counters for sign-up and sign-in attempts |
@@ -195,7 +213,8 @@ A load test in the QA repo checks the web tier at 500 concurrent users and the q
 - **Logs:** identify people by internal IDs (account, run, person). Lead data (names, emails, LinkedIn URLs),
   requesters' email addresses and sign-in links are never logged. A sign-up attempt over the limit is logged without
   who made it; the `rate_limits` table shows which IP address or address hash went over.
-- **Data retention:** personal data in results and caches is deleted after 30 days.
+- **Data retention:** personal data in results and caches is deleted after 30 days by the hourly retention job
+  (see [Deleting personal data](#deleting-personal-data)).
 
 ## Environments
 

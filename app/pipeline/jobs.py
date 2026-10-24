@@ -1,6 +1,6 @@
 """Every kind of job the worker runs, by name."""
 
-from app.pipeline import analyze, collect, enrich, qualify, sign_in
+from app.pipeline import analyze, collect, enrich, qualify, retention, sign_in
 from app.pipeline.base import JobKind
 
 JOBS: dict[str, JobKind] = {
@@ -11,4 +11,5 @@ JOBS: dict[str, JobKind] = {
     enrich.ENRICH: JobKind(enrich.enrich, on_give_up=enrich.give_up),
     enrich.DELIVER: JobKind(enrich.deliver, on_give_up=enrich.give_up_delivery),
     sign_in.SEND_SIGN_IN: JobKind(sign_in.send_sign_in),
+    retention.RETENTION: JobKind(retention.retention),
 }

@@ -146,18 +146,6 @@ def test_each_run_asks_for_its_own_events_and_an_old_answer_keeps_only_events_in
         assert llm.find_events(ANALYSIS, today=date(2027, 2, 1)).value == []
 
 
-def test_questions_are_deleted_after_30_days_answered_or_not(db: Session) -> None:
-    old_open = open_task(db, "find_events", {"analysis": {}, "today": "2026-09-01"})
-    old_answered = open_task(db, "analyze_site", {"pages": []})
-    recent = open_task(db, "label_posts", {"event": "RevOps Summit 2026", "posts": []})
-    old_open.created_at = old_answered.created_at = NOW - timedelta(days=31)
-    old_answered.answer = ANALYSIS.model_dump(mode="json")
-    db.commit()
-    settings = Settings()
-    Worker(JobContext(settings=settings, providers=build_providers(settings), clock=lambda: NOW), {}).maintain()
-    assert [task.id for task in tasks(db)] == [recent.id]
-
-
 def test_every_post_gets_one_label_in_the_order_asked(db: Session) -> None:
     posts = [
         PostToLabel(post_id="p1", text="Heading to RevOps Summit!"),
