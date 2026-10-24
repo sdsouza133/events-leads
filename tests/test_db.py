@@ -55,7 +55,7 @@ def test_migrations_apply_and_match_the_models() -> None:
     command.check(config)
 
 
-def test_an_email_address_is_stored_in_lowercase_only() -> None:
+def test_an_email_address_is_stored_in_lowercase_only(migrated: None) -> None:
     """One account per address: Postgres compares text case-sensitively, so a mixed-case copy would be a second one."""
     with pytest.raises(IntegrityError, match="ck_accounts_email_lowercase"), session_scope() as session:
         session.add(Account(email="Jo@AcmeWidgets.com", domain="acmewidgets.com"))

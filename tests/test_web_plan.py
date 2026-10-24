@@ -279,6 +279,7 @@ def test_the_requester_s_edits_are_what_runs(client: TestClient, db: Session) ->
         ({"exclude": ", ".join(f"word{i}" for i in range(21))}, "exclude", "List up to 20 words"),
         ({"event-0-queries": ""}, "event-0", "Give this event 1 to 4 searches"),
         ({"event-1-queries": "\n".join(f'"search {i}"' for i in range(5))}, "event-1", "1 to 4 searches"),
+        ({"event-3-queries": "x" * 301}, "event-3", "1 to 4 searches"),  # unpicked, but not stored as typed
         ({"event-3-pick": "1"}, "events", "Pick up to 3 events"),
         ({"event-0-pick": None, "event-1-pick": None, "event-2-pick": None}, "events", "Pick at least one event"),
     ],
@@ -304,6 +305,7 @@ def test_a_half_filled_buyer_is_pointed_at_rather_than_the_whole_list(client: Te
     assert response.status_code == 400
     assert 'href="#buyer-0"' in response.text
     assert 'href="#buyers"' not in response.text  # "describe at least one buyer" would point at the wrong thing
+    assert response.text.count("buyer-0-error") == 4  # the message, and its group and both fields pointing to it
 
 
 def test_a_second_approval_changes_nothing(client: TestClient, db: Session) -> None:

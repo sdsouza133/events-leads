@@ -173,6 +173,37 @@ def test_a_company_that_used_its_free_run_is_told_so(client: TestClient, db: Ses
     assert jobs(db, SEND_SIGN_IN) == []
 
 
+def test_the_same_form_sent_twice_at_once_makes_one_run(client: TestClient, db: Session) -> None:
+    earlier = make_run(db, domain="acmewidgets.com", status=RunStatus.FAILED)  # stopped before spending anything
+    account = db.get(Account, earlier.account_id)
+    assert account is not None
+    account.email = EMAIL
+    db.commit()
+    form = {"website": "acmewidgets.com", "email": EMAIL, "csrf": csrf(client)}
+    first = get_sessionmaker()()  # the first form: it holds the account and is making its run, uncommitted
+    pool = ThreadPoolExecutor(max_workers=1)
+    try:
+        requester = start._account(first, EMAIL, "acmewidgets.com")
+        second = pool.submit(client.post, "/start", data=form)
+        with pytest.raises(TimeoutError):
+            second.result(timeout=1)  # the second waits for the first
+        first.add(
+            Run(
+                account_id=requester.id,
+                domain="acmewidgets.com",
+                website_url="https://acmewidgets.com/",
+                budget_usd=Decimal("3.00"),
+                status=RunStatus.AWAITING_SIGN_IN,
+            )
+        )
+        first.commit()
+        assert "Check your email" in second.result(timeout=10).text
+    finally:
+        first.close()  # if an assertion failed before the commit, this lets the waiting form finish
+        pool.shutdown()
+    assert [r.status for r in runs(db)].count(RunStatus.AWAITING_SIGN_IN) == 1  # the second reused the first's run
+
+
 def test_a_run_that_stopped_before_spending_anything_does_not_use_the_free_run(client: TestClient, db: Session) -> None:
     make_run(db, domain="acmewidgets.com", status=RunStatus.FAILED)  # the website couldn't be read
     db.commit()

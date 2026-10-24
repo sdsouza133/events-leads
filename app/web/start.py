@@ -243,8 +243,10 @@ def _send_link(session: Session, account_id: uuid.UUID, run_id: uuid.UUID | None
 
 
 def _account(session: Session, address: str, domain: str) -> Account:
+    """The requester's account, made if it's new, and locked until the request ends: the same form sent twice at once
+    (a double click) then makes one run, not two."""
     session.execute(insert(Account).values(id=uuid.uuid4(), email=address, domain=domain).on_conflict_do_nothing())
-    return session.scalars(select(Account).where(Account.email == address)).one()
+    return session.scalars(select(Account).where(Account.email == address).with_for_update()).one()
 
 
 def _pending_run(session: Session, account_id: uuid.UUID, domain: str) -> Run | None:
