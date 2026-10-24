@@ -66,6 +66,7 @@ def test_several_signs_of_being_there_keep_the_most_specific(text: str, expected
     "text",
     [
         "Can't make it to SaaStr, but my team is at booth 12.",  # not going, yet the company exhibits
+        "Can\u2019t make it to SaaStr, but my team is at booth 12.",  # the same, typed with a curly apostrophe
         "Use code EARLY for 15% off. See you at Pipeline Summit!",  # selling tickets and going?
         "Great lineup announced for RevOps Forum 2026.",  # mentions it, says nothing about the author
         "Is anyone going to INBOUND this year?",
@@ -74,6 +75,19 @@ def test_several_signs_of_being_there_keep_the_most_specific(text: str, expected
 )
 def test_unclear_or_conflicting_posts_are_left_to_claude(text: str) -> None:
     assert label(text) is None
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("I\u2019ll be at Pipeline Summit on Thursday.", L.ATTENDING),  # the typographic apostrophe
+        ("I\u2018m speaking at SaaStr Annual on Wednesday.", L.SPEAKING),  # its opening twin, a common slip
+        ("Can\u02bct make it to SaaStr this year.", L.NOT_ATTENDING),  # the modifier letter some keyboards type
+        ("We\u2019re hosting Pipeline Summit 2026.", L.ORGANIZER),
+    ],
+)
+def test_curly_apostrophes_read_like_straight_ones(text: str, expected: AttendanceLabel) -> None:
+    assert label(text) == expected
 
 
 def test_a_negation_does_not_read_as_its_opposite() -> None:

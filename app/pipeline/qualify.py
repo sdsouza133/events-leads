@@ -139,9 +139,11 @@ def _label_by_claude(
             run.status_detail = WAITING
         return Defer(runs.until_tomorrow(ctx.now()))
     except ProviderError as exc:
-        if exc.retryable:
+        if not exc.declined:
+            # Retried when that can help (a timeout). Otherwise (a rejected key, a retired model) the job fails, and
+            # the run with it, without caching anything: the labels are shared, and these posts deserve a real one.
             raise
-        # Claude won't label these (a refusal, say): keep them as unclear, so no run asks again.
+        # Claude refused these posts' content: keep them as unclear, so no run asks again.
         reason = f"not labeled: {exc}"[:300]
         unclear = [
             LabeledPost(post_id=p.post_id, label=AttendanceLabel.UNCLEAR, confidence=0, reason=reason) for p in batch

@@ -323,7 +323,7 @@ class AnthropicLlm:
         # also fails validation, and those must not be retried as if the model had just made a formatting slip.
         stop_reason = body.get("stop_reason")
         if stop_reason == "refusal":
-            raise ProviderError("Claude declined this request", retryable=False, cost_usd=billed)
+            raise ProviderError("Claude declined this request", retryable=False, cost_usd=billed, declined=True)
         if stop_reason == "max_tokens":
             raise ProviderError("Claude's answer was cut off before it finished", retryable=False, cost_usd=billed)
         try:
@@ -358,7 +358,7 @@ def _billed(body: dict[str, Any]) -> Decimal:
 def _plus(error: ProviderError, spent: Decimal) -> ProviderError:
     """The same failure, also counting what earlier calls in the same job were billed."""
     total = None if error.cost_usd is None else error.cost_usd + spent
-    return ProviderError(str(error), retryable=error.retryable, cost_usd=total)
+    return ProviderError(str(error), retryable=error.retryable, cost_usd=total, declined=error.declined)
 
 
 def _collect(content: Sequence[Any], notes: list[str], results: dict[str, str | None]) -> None:

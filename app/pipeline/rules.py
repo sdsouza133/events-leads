@@ -95,8 +95,13 @@ _MOST_SPECIFIC = [
 ]
 
 
+# Phones and many editors type a curly apostrophe; the rules are written with the straight one.
+_APOSTROPHES = str.maketrans({"\u2019": "'", "\u2018": "'", "\u02bc": "'"})
+
+
 def label(text: str) -> AttendanceLabel | None:
     """The post's label when the rules are sure of it, otherwise None (Claude decides)."""
+    text = text.translate(_APOSTROPHES)
     matched = {name for name, pattern in _RULES if pattern.search(text)}
     if len(matched) == 1:
         return matched.pop()

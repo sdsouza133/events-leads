@@ -32,7 +32,9 @@ What to do when operating the service. Keep it current: every incident should le
   same event or, if the run is `waiting_for_budget`, for the next UTC day. `error` says why an event failed.
 - A run stuck in `qualifying`: its `qualify` job defers to itself between turns, so a queued job with a recent
   `run_after` is working. `status_detail` says when it waits for the next day's budget. `post_labels` shows what
-  is labeled (`method` rule, model or skipped); `error` on the run notes when its budget ran out mid-way.
+  is labeled (`method` rule, model, or skipped when Claude refused the post); `error` on the run notes when its
+  budget ran out mid-way. A run failed in `qualifying` with nothing labeled usually means Claude rejected the
+  request itself (the job's `last_error` names the status): check `ANTHROPIC_API_KEY` and `CLASSIFY_MODEL`.
 
 ## Pausing spend immediately
 

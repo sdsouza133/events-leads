@@ -338,13 +338,27 @@ def test_posts_claude_declines_to_label_are_kept_as_unclear(db: Session) -> None
     summit = event(db)
     [refused] = unclear_posts(db, summit, 1)
     run = qualifying_run(db, summit)
-    declined = ProviderError("Claude declined this request", retryable=False, cost_usd=Decimal("0.01"))
+    declined = ProviderError("Claude declined this request", retryable=False, cost_usd=Decimal("0.01"), declined=True)
     clock = Clock()
     run_jobs(db, worker(clock, CountingLlm(error=declined)), clock)
 
     assert labels(db) == {refused: ("unclear", "skipped", None)}
     assert [(e.status, e.actual_usd) for e in spend(db, run)] == [(SpendStatus.SETTLED, Decimal("0.01"))]
     assert fresh(db, run).status == RunStatus.ENRICHING
+
+
+def test_a_request_claude_rejects_fails_the_run_and_labels_nothing(db: Session) -> None:
+    summit = event(db)
+    unclear_posts(db, summit, 1)
+    run = qualifying_run(db, summit)
+    rejected = ProviderError("the Claude API answered 401", retryable=False)  # a revoked key, a retired model
+    clock = Clock()
+    run_jobs(db, worker(clock, CountingLlm(error=rejected)), clock)
+
+    assert labels(db) == {}  # nothing cached: once the key is fixed, the next run labels these posts for real
+    failed = fresh(db, run)
+    assert (failed.status, failed.status_detail) == (RunStatus.FAILED, qualify.SOMETHING_WRONG)
+    assert all(entry.status != SpendStatus.RESERVED for entry in spend(db, run))
 
 
 def test_the_last_failed_attempt_fails_the_run(db: Session) -> None:
