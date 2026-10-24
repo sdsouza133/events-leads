@@ -1,0 +1,47 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# CodeRabbit reviews every pull request. These notes tell it what matters most in this codebase.
+language: en-US
+reviews:
+  profile: assertive
+  high_level_summary: true
+  review_status: true
+  poem: false
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - ".*"  # stacked pull requests target another PR's branch, not main; review those too
+  path_instructions:
+    - path: "app/**/*.py"
+      instructions: |
+        Production code for a public, multi-tenant web app that spends money on third-party APIs. Check in particular:
+        - every route that reads a run or its leads is limited to the run's owner (or an admin);
+        - any outbound fetch of a URL a user typed is protected against SSRF (private, loopback and link-local
+          addresses, redirects to them, oversized responses);
+        - spend and usage caps are checked before any paid API call, and the check can't be raced by two workers;
+        - background job handlers are idempotent, because a job can run twice after a crash;
+        - no secrets, API keys or personal data (emails, names) are written to logs;
+        - datetimes are timezone-aware.
+    - path: "migrations/versions/**"
+      instructions: |
+        Each migration must match app/models.py, include a working downgrade, and avoid long table locks
+        (for example, add indexes on large tables CONCURRENTLY in a separate migration).
+    - path: "tests/**"
+      instructions: |
+        Tests must never call real third-party APIs (Anthropic, Apify, Apollo, Reoon, Resend) and must not depend on
+        test order. Prefer assertions on behavior over assertions on implementation details.
+    - path: ".github/workflows/**"
+      instructions: "Workflows should request the least permissions they need and never print secrets."
+  tools:
+    ruff:
+      enabled: true
+    gitleaks:
+      enabled: true
+    hadolint:
+      enabled: true
+    actionlint:
+      enabled: true
+    semgrep:
+      enabled: true
+chat:
+  auto_reply: true

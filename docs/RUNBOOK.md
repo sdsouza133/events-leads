@@ -1,0 +1,36 @@
+# Runbook
+
+What to do when operating the service. Keep it current: every incident should leave this page better.
+
+## Deploying
+
+- Merging to `main` deploys to **staging** automatically. The QA smoke and end-to-end suites run against it.
+- Production is promoted from a staging build that passed QA (Railway: the staging deployment → *Promote*, or merge the
+  release PR when release automation is added).
+- Database migrations run before the new version starts (`alembic upgrade head` as Railway's pre-deploy command). A
+  migration that fails stops the deploy and the old version keeps running.
+
+## Rolling back
+
+1. Railway → the service → Deployments → the last good deployment → **Redeploy**.
+2. If the bad version ran a migration, check that migration's `downgrade()` is safe before running
+   `alembic downgrade -1`. Prefer a forward fix when data was written in the new shape.
+
+## Pausing spend immediately
+
+Set `PAUSE_NEW_RUNS=true` on the worker service. Runs already collecting finish their current step and stop; nothing new
+starts. To also stop runs in progress, scale the worker to zero.
+
+## Rotating a secret
+
+1. Create the new key at the provider.
+2. Update the variable in Railway for the affected environment; Railway redeploys.
+3. Revoke the old key at the provider.
+
+## When something is wrong
+
+1. **Look:** `/readyz`, Railway logs (filter by `request_id`, `run_id` or `job_id`), Sentry, the operator console.
+2. **Contain:** pause spend (above) if money or data is at risk.
+3. **Fix or roll back.**
+4. **Write it up** within a week: what happened, impact, timeline, root cause, what we changed so it can't recur.
+   Blameless: the question is which safeguard was missing, not who made the mistake.
