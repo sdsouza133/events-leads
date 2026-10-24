@@ -135,6 +135,7 @@ def test_a_refusal_is_not_retried() -> None:
     with pytest.raises(ProviderError) as exc:
         llm.analyze_site([PAGE])
     assert not exc.value.retryable
+    assert exc.value.declined  # the one failure that is about the input itself
 
 
 @pytest.mark.parametrize(
@@ -176,8 +177,9 @@ def test_an_answer_that_isnt_json_is_retried_with_its_cost_unknown() -> None:
 
 def test_an_answer_cut_off_by_max_tokens_is_reported() -> None:
     llm, _ = make_llm(lambda _body, _i: message([{"type": "text", "text": '{"company_na'}], stop="max_tokens"))
-    with pytest.raises(ProviderError, match="cut off"):
+    with pytest.raises(ProviderError, match="cut off") as exc:
         llm.analyze_site([PAGE])
+    assert not exc.value.declined  # a limit of ours, not something Claude said about the input
 
 
 def test_output_that_doesnt_fit_the_schema_is_retryable() -> None:
@@ -194,6 +196,7 @@ def test_api_errors_say_whether_to_retry(status: int, retryable: bool) -> None:
     with pytest.raises(ProviderError) as exc:
         llm.analyze_site([PAGE])
     assert exc.value.retryable is retryable
+    assert not exc.value.declined  # e.g. a 401 is about our key, not about the input
     assert exc.value.cost_usd == 0  # an error answer isn't billed
 
 

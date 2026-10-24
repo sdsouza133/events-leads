@@ -28,9 +28,10 @@ from app.models import (
 )
 from app.pipeline import collect
 from app.pipeline.base import DONE, JobContext
-from app.pipeline.collect import COLLECT_EVENT, QUALIFY, approve, event_key
+from app.pipeline.collect import COLLECT_EVENT, approve, event_key
 from app.pipeline.jobs import JOBS
 from app.pipeline.paid import step_key
+from app.pipeline.qualify import QUALIFY
 from app.providers.fakes import FakePostSearch
 from app.providers.registry import build_providers
 from app.providers.types import ProviderError, SearchedPost, SearchRun, SearchStatus
@@ -79,7 +80,8 @@ def worker(clock: Clock, search: FakePostSearch | None = None, **settings: objec
     configured = Settings.model_validate(settings)
     providers = build_providers(configured)
     providers = dataclasses.replace(providers, search=search or StubSearch())
-    return Worker(JobContext(settings=configured, providers=providers, clock=clock), JOBS, name="worker-a")
+    only_this_step = {COLLECT_EVENT: JOBS[COLLECT_EVENT]}  # the next step's job stays queued for its own tests
+    return Worker(JobContext(settings=configured, providers=providers, clock=clock), only_this_step, name="worker-a")
 
 
 def event(name: str = "Pipeline Summit", queries: list[str] | None = None, **fields: object) -> ApprovedEvent:

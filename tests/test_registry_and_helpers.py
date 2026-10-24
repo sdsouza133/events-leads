@@ -93,6 +93,12 @@ def test_unknown_models_are_priced_at_the_top_rate() -> None:
     assert pricing.claude_price("claude-typo") == pricing.CLAUDE["claude-opus-5-5"]
 
 
+def test_labeling_a_batch_is_estimated_from_its_size_and_model() -> None:
+    # 25 posts on Opus: 16,200 tokens in at $4/M and 5,750 out at $20/M.
+    assert pricing.claude_label_estimate("claude-opus-5-5", 25) == Decimal("0.1798")
+    assert pricing.claude_label_estimate("claude-haiku-5-5", 25) < pricing.claude_label_estimate("claude-opus-5-5", 25)
+
+
 def test_apify_estimate_is_the_worst_case() -> None:
     assert pricing.apify_search_estimate(queries=4, max_posts_per_query=50) == Decimal("0.400")
     assert pricing.apify_search_estimate(queries=2, max_posts_per_query=0) == Decimal("0.002")

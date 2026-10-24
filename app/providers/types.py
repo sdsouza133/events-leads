@@ -14,12 +14,19 @@ class ProviderError(Exception):
     refusal, an answer cut off, output in the wrong shape), so the caller settles its reservation with this amount
     rather than releasing it. None means unknown: the request may have been billed (a timeout mid-answer), so the
     caller settles the full reservation (ADR 0002).
+
+    `declined` marks the one failure that is an answer about the input: the model refused this content. Other
+    input may still go through, so a step working through many can set it aside. Every other failure is about the
+    request or the account (a rejected key, a retired model) and says nothing about the input.
     """
 
-    def __init__(self, message: str, *, retryable: bool, cost_usd: Decimal | None = Decimal(0)) -> None:
+    def __init__(
+        self, message: str, *, retryable: bool, cost_usd: Decimal | None = Decimal(0), declined: bool = False
+    ) -> None:
         super().__init__(message)
         self.retryable = retryable
         self.cost_usd = cost_usd
+        self.declined = declined
 
 
 @dataclass(frozen=True)

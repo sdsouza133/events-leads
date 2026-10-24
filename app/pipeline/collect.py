@@ -35,12 +35,12 @@ from app.models import Event, EventPost, Post, Run, RunEvent, RunEventStatus, Ru
 from app.pipeline import runs
 from app.pipeline.base import DONE, Defer, JobContext, Outcome, Payload
 from app.pipeline.paid import paid_call, step_key
+from app.pipeline.qualify import QUALIFY
 from app.providers.pricing import apify_search_estimate
 from app.providers.types import Answer, ProviderError, SearchedPost, SearchRun, SearchStatus
 from app.schemas import MAX_QUERIES, ApprovedEvent
 
 COLLECT_EVENT = "collect_event"
-QUALIFY = "qualify"  # the next step's job (issue #6)
 MAX_EVENTS = 3
 SEARCH_TRIES = 2  # a search that fails or runs too long is tried once more
 SEARCH_GIVE_UP_AFTER = timedelta(minutes=30)  # Apify stops a run at 15 minutes; this is for one that never says so

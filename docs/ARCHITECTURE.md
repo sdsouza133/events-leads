@@ -58,8 +58,12 @@ stateDiagram-v2
    run's id before polling it, so a worker that stops mid-search picks the same run back up. Posts, which search
    found each, and the searches themselves go into the shared cache. A search that fails or runs past 30 minutes is
    tried once more, then only its event is dropped; the run fails only if no event could be searched.
-3. **qualify**: cheap text rules label the obvious posts; Claude labels the rest in batches. Labels are cached per
-   post and event. People whose headline can't match the ICP are dropped before any paid lookup.
+3. **qualify**, one `qualify` job per run. Text rules label the obvious posts for free (`app/pipeline/rules.py`);
+   Claude labels the rest, 25 posts per call, a few calls per turn of the job, which then defers to itself so other
+   runs get a turn. Labels are cached per post and event, so a run reuses what earlier runs paid for. Company pages
+   are never labeled. Each person who was there (attending, attended, speaking, exhibiting) becomes one candidate
+   with their most telling post; anyone whose headline already rules them out (an excluded title, a student, the
+   requester's own colleague) is kept with the reason and skipped by the paid steps.
 4. **enrich**: Apollo bulk match by LinkedIn URL (10 people per call), cached per person. ICP scoring on the enriched
    title, seniority, industry and company size. Only verified emails are kept.
 5. **deliver**: the results link is emailed and the run is marked ready.

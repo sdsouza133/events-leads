@@ -57,6 +57,21 @@ def claude_cost(
     return (tokens / MILLION + WEB_SEARCH_USD * web_searches).quantize(Decimal("0.0001"))
 
 
+LABEL_PROMPT_TOKENS = 1_200  # the labeling instructions, sent with every batch
+LABEL_TOKENS_PER_POST = 600  # up to 1,500 characters of post text, the headline and the tags around them
+LABEL_THINKING_TOKENS = 2_000  # what a call at low effort may spend thinking
+LABEL_OUTPUT_PER_POST = 150  # a label, a confidence and a short reason
+
+
+def claude_label_estimate(model: str, posts: int) -> Decimal:
+    """A generous estimate for labeling one batch of posts: reserved before the call, settled at the real usage."""
+    return claude_cost(
+        model,
+        input_tokens=LABEL_PROMPT_TOKENS + LABEL_TOKENS_PER_POST * posts,
+        output_tokens=LABEL_THINKING_TOKENS + LABEL_OUTPUT_PER_POST * posts,
+    )
+
+
 def apify_search_estimate(queries: int, max_posts_per_query: int) -> Decimal:
     """The most a post search can charge: every query returns its maximum (or nothing, at the empty-query price)."""
     per_query = max(APIFY_POST_USD * max_posts_per_query, APIFY_EMPTY_QUERY_USD)
