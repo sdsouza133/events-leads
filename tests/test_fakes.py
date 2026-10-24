@@ -95,12 +95,20 @@ def test_fake_verifier_and_mailer() -> None:
     assert FakeEmailVerifier().verify("bounce@example.com") == "invalid"
     assert FakeEmailVerifier().verify("ok@example.com") == "safe"
     mailer = FakeMailer()
-    mailer.send(OutgoingEmail(to="a@example.com", subject="one", text="1"))
-    mailer.send(OutgoingEmail(to="a@example.com", subject="two", text="2"))
+    mailer.send(OutgoingEmail(to="a@example.com", subject="one", text="1", key="signin:1"))
+    mailer.send(OutgoingEmail(to="a@example.com", subject="two", text="2", key="signin:2"))
     last = mailer.last_to("a@example.com")
     assert last is not None
     assert last.subject == "two"
     assert mailer.last_to("b@example.com") is None
+
+
+def test_fake_mailer_delivers_each_key_once_like_resend() -> None:
+    mailer = FakeMailer()
+    email = OutgoingEmail(to="a@example.com", subject="Your list", text="1", key="results:r1")
+    mailer.send(email)
+    mailer.send(email)  # a job retried after a crash
+    assert len(mailer.outbox) == 1
 
 
 def test_fake_search_respects_the_post_and_spend_caps() -> None:

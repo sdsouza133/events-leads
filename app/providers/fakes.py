@@ -312,13 +312,15 @@ class FakeEmailVerifier:
 
 
 class FakeMailer:
-    """Keeps sent emails in memory so tests can read the sign-in link out of them."""
+    """Keeps sent emails in memory so tests can read the sign-in link out of them. Like Resend, it delivers each
+    idempotency key once, so a test can check that a retried job doesn't email anyone twice."""
 
     def __init__(self) -> None:
         self.outbox: list[OutgoingEmail] = []
 
     def send(self, email: OutgoingEmail) -> None:
-        self.outbox.append(email)
+        if all(sent.key != email.key for sent in self.outbox):
+            self.outbox.append(email)
 
     def last_to(self, address: str) -> OutgoingEmail | None:
         return next((e for e in reversed(self.outbox) if e.to == address), None)

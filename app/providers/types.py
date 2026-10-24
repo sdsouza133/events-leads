@@ -8,11 +8,18 @@ from enum import StrEnum
 
 class ProviderError(Exception):
     """A provider call failed. `retryable` tells the job queue whether trying again later can help
-    (rate limits, timeouts, 5xx) or not (a rejected key, a malformed request)."""
+    (rate limits, timeouts, 5xx) or not (a rejected key, a malformed request).
 
-    def __init__(self, message: str, *, retryable: bool) -> None:
+    `cost_usd` is what the failed call was billed. A model can answer, and charge, and the call still fail (a
+    refusal, an answer cut off, output in the wrong shape), so the caller settles its reservation with this amount
+    rather than releasing it. None means unknown: the request may have been billed (a timeout mid-answer), so the
+    caller settles the full reservation (ADR 0002).
+    """
+
+    def __init__(self, message: str, *, retryable: bool, cost_usd: Decimal | None = Decimal(0)) -> None:
         super().__init__(message)
         self.retryable = retryable
+        self.cost_usd = cost_usd
 
 
 @dataclass(frozen=True)
@@ -94,5 +101,7 @@ class OutgoingEmail:
     to: str
     subject: str
     text: str
+    # Required, so no email can go out without one (e.g. "results:<run id>"). Resend delivers a key once within
+    # 24 hours; the outbox gives up on a send before that window ends rather than risk a second copy (ADR 0002).
+    key: str
     html: str | None = None
-    key: str | None = None  # idempotency key: the same key is never delivered twice (ADR 0002)

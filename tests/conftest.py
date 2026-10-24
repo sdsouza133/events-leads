@@ -27,6 +27,11 @@ ROOT = Path(__file__).resolve().parent.parent
 
 # Tests never read a developer's .env: what they see comes from the variables set here and in each test.
 Settings.model_config["env_file"] = None
+# Nor app settings exported in their shell (PROVIDERS, API keys, ...), which could switch tests to real services.
+for _variable in [
+    v for v in os.environ if v.lower() in Settings.model_fields and v.lower() not in ("env", "database_url")
+]:
+    del os.environ[_variable]
 
 
 def require_a_test_database(name: str | None) -> None:

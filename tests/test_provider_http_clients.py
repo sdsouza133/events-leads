@@ -198,7 +198,17 @@ def test_network_failures_are_retryable() -> None:
     with pytest.raises(ProviderError) as exc:
         ReoonVerifier("rkey", transport=httpx2.MockTransport(broken)).verify("a@x.example")
     assert exc.value.retryable
+    assert exc.value.cost_usd is None  # the request may have got through: what it cost is unknown
     assert "rkey" not in str(exc.value)  # the key never leaks into error messages
+
+
+@pytest.mark.parametrize(("status", "retryable"), [(408, True), (425, True), (429, True), (503, True), (422, False)])
+def test_which_statuses_are_worth_retrying(status: int, retryable: bool) -> None:
+    rec = Recorder({"/api/v1/verify": httpx2.Response(status, json={"error": "x"})})
+    with pytest.raises(ProviderError) as exc:
+        ReoonVerifier("rkey", transport=httpx2.MockTransport(rec)).verify("a@x.example")
+    assert exc.value.retryable is retryable
+    assert exc.value.cost_usd == 0  # the service answered with an error: nothing was charged
 
 
 def test_resend_sends_with_an_idempotency_key() -> None:
@@ -221,5 +231,21 @@ def test_unreadable_responses_are_retryable() -> None:
     rec = Recorder({"/emails": httpx2.Response(200, content=b"<html>gateway</html>")})
     mailer = ResendMailer("k", sender="x@example.com", transport=httpx2.MockTransport(rec))
     with pytest.raises(ProviderError) as exc:
-        mailer.send(OutgoingEmail(to="a@b.example", subject="s", text="t"))
+        mailer.send(OutgoingEmail(to="a@b.example", subject="s", text="t", key="signin:1"))
     assert exc.value.retryable
+
+
+@pytest.mark.parametrize(
+    ("name", "retryable"),
+    [
+        ("concurrent_idempotent_requests", True),  # the first send with this key is still in progress
+        ("invalid_idempotent_request", False),  # the same key with a different email: our bug, retrying won't help
+    ],
+)
+def test_resend_conflicts_are_retried_only_while_the_first_send_is_running(name: str, retryable: bool) -> None:
+    conflict = {"statusCode": 409, "name": name, "message": "x"}
+    rec = Recorder({"/emails": httpx2.Response(409, json=conflict)})
+    mailer = ResendMailer("k", sender="x@example.com", transport=httpx2.MockTransport(rec))
+    with pytest.raises(ProviderError) as exc:
+        mailer.send(OutgoingEmail(to="a@b.example", subject="s", text="t", key="results:r1"))
+    assert exc.value.retryable is retryable
