@@ -164,6 +164,19 @@ def test_every_post_gets_one_label_in_the_order_asked(db: Session) -> None:
     ]
 
 
+def test_a_post_edited_since_it_was_asked_about_is_asked_about_again(db: Session) -> None:
+    llm = ManualLlm()
+    asked = [PostToLabel(post_id="p1", author_headline="VP Sales", text="Speaking at RevOps Summit!")]
+    with pytest.raises(AnswerPendingError):
+        llm.label_posts("RevOps Summit 2026", asked)
+    [task] = tasks(db)
+    answer(db, task.id, {"labels": [{"post_id": "p1", "label": "speaking", "confidence": 0.9, "reason": "says so"}]})
+    edited = [asked[0].model_copy(update={"text": "Sadly I can't make RevOps Summit after all."})]
+    with pytest.raises(AnswerPendingError):  # the answer was about what the post said then
+        llm.label_posts("RevOps Summit 2026", edited)
+    assert [t.question["posts"][0]["text"] for t in tasks(db)] == [asked[0].text, edited[0].text]
+
+
 def test_a_task_names_the_run_whose_job_asked(db: Session) -> None:
     run = make_run(db)
     db.commit()
@@ -282,9 +295,16 @@ def test_labels_cover_each_post_once_and_a_task_is_answered_once(client: TestCli
 
 
 # ---------------------------------------------------------------------------------------------- the console
-def test_the_console_says_how_many_questions_are_waiting(db: Session) -> None:
+@pytest.mark.parametrize(
+    ("token", "says"),
+    [
+        (TOKEN, "1 question is waiting for an answer at /admin/api/tasks"),
+        (None, "1 question is waiting for an answer, but OPERATOR_API_TOKEN isn't set on this service"),
+    ],
+)
+def test_the_console_says_how_many_questions_are_waiting_and_where(db: Session, token: str | None, says: str) -> None:
     settings = Settings(
-        providers="real", operator_api_token=TOKEN, apify_token="b", apollo_api_key="c", admin_emails=OPERATOR
+        providers="real", operator_api_token=token, apify_token="b", apollo_api_key="c", admin_emails=OPERATOR
     )
     open_task(db, "find_events", {"analysis": {}, "today": "2026-10-24"})
     answered = open_task(db, "analyze_site", {"pages": []})
@@ -301,4 +321,4 @@ def test_the_console_says_how_many_questions_are_waiting(db: Session) -> None:
         client.cookies.set(auth.SESSION_COOKIE, cookie)
         page_text = text(client.get("/admin"))
     assert "Manual AI mode is on" in page_text
-    assert "1 question is waiting for an answer at /admin/api/tasks" in page_text
+    assert says in page_text
