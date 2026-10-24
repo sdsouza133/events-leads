@@ -33,7 +33,8 @@ class Settings(BaseSettings):
 
     # Spend caps for the dollar-billed services, Apify and Claude (PRD, "Limits").
     run_budget_usd: Decimal = Field(default=Decimal("3.00"), gt=0)
-    analysis_budget_usd: Decimal = Field(default=Decimal("0.50"), gt=0)  # the part of a run spent before approval
+    # The part of a run spent before approval. At least what analyze_site reserves, or no run could start.
+    analysis_budget_usd: Decimal = Field(default=Decimal("0.50"), ge=Decimal("0.15"))
     daily_cap_usd: Decimal = Field(default=Decimal("20.00"), gt=0)
 
     # The background worker (ADR 0002).

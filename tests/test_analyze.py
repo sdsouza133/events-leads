@@ -6,6 +6,7 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -96,6 +97,12 @@ def fresh(db: Session, run: Run) -> Run:
 
 def spend(db: Session, run: Run) -> list[SpendEntry]:
     return list(db.scalars(select(SpendEntry).where(SpendEntry.run_id == run.id).order_by(SpendEntry.id)))
+
+
+def test_the_analysis_budget_must_cover_what_analyze_site_reserves() -> None:
+    Settings(analysis_budget_usd=analyze.ANALYZE_SITE_ESTIMATE)
+    with pytest.raises(ValidationError, match=r"greater than or equal to 0\.15"):
+        Settings(analysis_budget_usd=analyze.ANALYZE_SITE_ESTIMATE - Decimal("0.01"))
 
 
 def test_a_signed_in_run_becomes_a_plan_to_review(db: Session) -> None:
