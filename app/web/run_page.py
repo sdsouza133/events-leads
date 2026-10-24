@@ -71,7 +71,7 @@ class Progress:
 class Found:
     """What the search has found so far: the page's three counters, and how far along it is."""
 
-    posts: int  # read for the run's events
+    posts: int  # found for the run's events
     people: int  # whose posts show them at one of the events
     emails: int  # verified, of the people still in the running
     percent: int

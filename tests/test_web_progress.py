@@ -1,6 +1,7 @@
 """A working run's page shows how far it has got as a few steps (issue #8): the plan's two while it's made, the
 search's three once it's approved."""
 
+import html
 import itertools
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -147,3 +148,17 @@ def test_the_search_page_shows_the_counters(db: Session) -> None:
     assert "1 event" in page
     status = client.get(f"/runs/{run.id}/status").json()
     assert status["found"] == {"posts": 2, "people": 2, "emails": 0, "percent": round((1 + 1) * 100 / 3)}
+
+
+@pytest.mark.db
+def test_a_run_waiting_for_capacity_promises_no_minutes(db: Session) -> None:
+    run = make_run(db, status=RunStatus.WAITING_FOR_BUDGET)
+    run.status_detail = collect.WAITING
+    _event_with_posts(db, run, ["attending"])
+    client = TestClient(create_app())
+    cookie = auth.open_session(db, run.account_id, now=datetime.now(UTC), lifetime=timedelta(days=1))
+    db.commit()
+    client.cookies.set(auth.SESSION_COOKIE, cookie)
+    page = client.get(f"/runs/{run.id}").text
+    assert collect.WAITING in html.unescape(page)
+    assert '<span id="run-estimate" hidden>About 10 minutes. </span>' in page
