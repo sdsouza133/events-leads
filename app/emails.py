@@ -2,12 +2,30 @@
 
 import uuid
 
+from app.auth import digest
 from app.providers.types import OutgoingEmail
 
 
 def run_url(base_url: str, run_id: uuid.UUID) -> str:
     """The run's page (plan, progress, then results), for its requester once signed in."""
     return f"{base_url.rstrip('/')}/runs/{run_id}"
+
+
+def sign_in_email(*, to: str, base_url: str, token: str, domain: str | None, minutes: int) -> OutgoingEmail:
+    """The one-time sign-in link (ADR 0004). Its key comes from the token, so a retry that makes a new link sends a
+    new email rather than being refused as a different email with the same key."""
+    link = f"{base_url.rstrip('/')}/sign-in?token={token}"
+    purpose = f"see the plan for {domain}" if domain else "see your runs"
+    body = (
+        f"Use this link to sign in and {purpose}:\n{link}\n\nIt works once, within {minutes} minutes. "
+        "If you didn't ask for it, you can ignore this email."
+    )
+    return OutgoingEmail(
+        to=to,
+        subject="Your sign-in link for Event Leads",
+        text=f"Hi,\n\n{body}\n\nEvent Leads\n",
+        key=f"sign-in:{digest(token)[:32]}",
+    )
 
 
 def results_email(

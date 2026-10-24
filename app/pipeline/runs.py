@@ -4,11 +4,31 @@ import random
 import uuid
 from datetime import UTC, datetime, timedelta
 
+from sqlalchemy import and_, func, not_, select
 from sqlalchemy.orm import Session
 
 from app.models import Run, RunStatus
 
 MIDNIGHT_SPREAD = timedelta(minutes=15)
+
+
+def runs_used(session: Session, domain: str) -> int:
+    """How many of a company's free runs are used: every run someone signed in for, except one that stopped before
+    spending anything (a website we couldn't read, a run stopped because the company had used its runs)."""
+    stopped_free = and_(Run.status.in_([RunStatus.FAILED, RunStatus.CANCELED]), Run.spent_usd == 0)
+    return (
+        session.scalar(
+            select(func.count())
+            .select_from(Run)
+            .where(Run.domain == domain, Run.status != RunStatus.AWAITING_SIGN_IN, not_(stopped_free))
+        )
+        or 0
+    )
+
+
+def lock_domain(session: Session, domain: str) -> None:
+    """Hold the company's lock until the transaction ends, so two sign-ins can't both take its last free run."""
+    session.execute(select(func.pg_advisory_xact_lock(func.hashtext(f"free-runs:{domain}"))))
 
 
 def locked(session: Session, run_id: uuid.UUID) -> Run | None:

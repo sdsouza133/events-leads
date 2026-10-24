@@ -1,0 +1,131 @@
+/* One small stylesheet. Colors meet WCAG 2.1 AA contrast on white; focus is always visible. */
+:root {
+  --text: #1f2933;
+  --muted: #52606d;
+  --accent: #1d4ed8;
+  --accent-dark: #1e3a8a;
+  --error: #b00020;
+  --border: #9aa5b1;
+  --surface: #f5f7fa;
+}
+
+* { box-sizing: border-box; }
+
+html { font-size: 100%; }
+
+body {
+  margin: 0;
+  color: var(--text);
+  background: #fff;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  line-height: 1.5;
+}
+
+main, header.site, footer.site {
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: 1rem 1.25rem;
+}
+
+header.site {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+footer.site {
+  color: var(--muted);
+  font-size: 0.875rem;
+  border-top: 1px solid var(--border);
+  margin-top: 3rem;
+}
+
+.brand { font-weight: 700; color: var(--text); text-decoration: none; }
+
+.skip {
+  position: absolute;
+  left: -999px;
+}
+
+.skip:focus {
+  left: 1rem;
+  top: 1rem;
+  padding: 0.5rem 1rem;
+  background: #fff;
+  z-index: 10;
+}
+
+h1 { font-size: 1.75rem; line-height: 1.25; margin: 1.5rem 0 1rem; }
+h2 { font-size: 1.25rem; margin: 1.5rem 0 0.5rem; }
+
+a { color: var(--accent); }
+a:hover { color: var(--accent-dark); }
+
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+.lead { font-size: 1.125rem; }
+.small, .hint { color: var(--muted); font-size: 0.9375rem; }
+.hint { margin: 0 0 0.25rem; }
+
+.field { margin: 1.25rem 0; }
+
+label { display: block; font-weight: 600; }
+
+input[type="text"], input[type="email"], input[type="url"], input[type="date"], textarea, select {
+  width: 100%;
+  max-width: 32rem;
+  padding: 0.5rem 0.625rem;
+  font: inherit;
+  color: inherit;
+  border: 2px solid var(--border);
+  border-radius: 4px;
+}
+
+input[aria-invalid="true"] { border-color: var(--error); }
+
+button {
+  font: inherit;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent);
+  border: 0;
+  border-radius: 4px;
+  padding: 0.625rem 1.25rem;
+  cursor: pointer;
+}
+
+button:hover { background: var(--accent-dark); }
+
+button.link {
+  color: var(--accent);
+  background: none;
+  padding: 0;
+  font-weight: 400;
+  text-decoration: underline;
+}
+
+form.inline { display: flex; align-items: center; gap: 0.75rem; }
+
+.who { color: var(--muted); font-size: 0.875rem; }
+
+.error { color: var(--error); font-weight: 600; margin: 0 0 0.25rem; }
+
+.error-summary {
+  border: 3px solid var(--error);
+  padding: 0.75rem 1rem;
+  margin: 1rem 0;
+}
+
+.error-summary h2 { margin-top: 0; }
+
+.status { background: var(--surface); padding: 0.75rem 1rem; border-radius: 4px; }
+.status h2 { margin-top: 0; }
+
+.email { border-top: 1px solid var(--border); }
+.email pre { white-space: pre-wrap; word-break: break-word; background: var(--surface); padding: 0.75rem; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}

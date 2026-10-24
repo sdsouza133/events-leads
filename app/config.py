@@ -57,6 +57,13 @@ class Settings(BaseSettings):
     min_icp_score: int = Field(default=40, ge=0, le=100)
     results_days: int = Field(default=30, ge=1, le=30)
 
+    # Requesters and operators (issue #8, ADR 0004).
+    admin_emails: Annotated[tuple[str, ...], NoDecode] = ()  # operators: they see every run
+    free_runs_per_domain: int = Field(default=1, ge=0, le=100)
+    session_days: int = Field(default=30, ge=1, le=90)
+    sign_ups_per_hour: int = Field(default=5, ge=1, le=1000)  # per IP address, and per email address
+    qa_token: SecretStr | None = None  # lets the QA suite read a preview's outbox (X-QA-Token header)
+
     # External services. "fake" runs everything offline on synthetic data (tests, local work, previews).
     providers: Literal["fake", "real"] = "fake"
     anthropic_api_key: SecretStr | None = None
@@ -89,10 +96,11 @@ class Settings(BaseSettings):
             raise ValueError("ENV is set but blank: set it to dev, test, staging or production")
         return {name: value for name, value in data.items() if not _blank(value)}
 
-    @field_validator("accepted_email_statuses", mode="before")
+    @field_validator("accepted_email_statuses", "admin_emails", mode="before")
     @classmethod
     def _comma_separated(cls, value: Any) -> Any:
-        """ACCEPTED_EMAIL_STATUSES=verified,likely to engage: Apollo's statuses, compared in lower case."""
+        """ACCEPTED_EMAIL_STATUSES=verified,likely to engage (Apollo's statuses), ADMIN_EMAILS=a@x.com,b@x.com:
+        lists, compared in lower case."""
         if isinstance(value, str):
             value = value.split(",")
         if isinstance(value, list | tuple | set | frozenset):
