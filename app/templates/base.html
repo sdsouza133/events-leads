@@ -14,10 +14,13 @@
 <body{% block body_attrs %}{% endblock %}>
   <a class="skip" href="#main">Skip to content</a>
   <header class="site">
-    <a class="brand" href="/">
-      <svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><rect width="32" height="32" rx="9" fill="#3346E8"/><circle cx="16" cy="12" r="4" fill="#fff"/><rect x="9" y="19" width="14" height="4" rx="2" fill="#fff"/></svg>
-      Event Leads
-    </a>
+    <div class="brand-row">
+      <a class="brand" href="/">
+        <svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><rect width="32" height="32" rx="9" fill="#3346E8"/><circle cx="16" cy="12" r="4" fill="#fff"/><rect x="9" y="19" width="14" height="4" rx="2" fill="#fff"/></svg>
+        Event Leads
+      </a>
+      {% block brand_tag %}{% endblock %}
+    </div>
     <nav class="account" aria-label="Your account">
       {% if account %}
       {% if operator %}<a href="/admin">Console</a>{% endif %}

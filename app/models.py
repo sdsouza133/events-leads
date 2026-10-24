@@ -164,6 +164,11 @@ class Run(Base):
     reserved_usd: Mapped[Decimal] = mapped_column(default=Decimal(0), server_default=text("0"))
     apollo_credits_used: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
     leads_count: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    operator_run: Mapped[bool] = mapped_column(
+        default=False,
+        server_default=text("false"),
+        comment="Started from the console by an operator, so it doesn't use the company's free run",
+    )
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
     approved_at: Mapped[datetime | None]
@@ -181,6 +186,17 @@ class RunGrant(Base):
     granted_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("accounts.id", ondelete="SET NULL"))
     note: Mapped[str | None] = mapped_column(String(300))
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class Flag(Base):
+    """A switch an operator flips in the console, such as whether the start form takes new runs."""
+
+    __tablename__ = "flags"
+
+    name: Mapped[str] = mapped_column(String(64), primary_key=True)
+    enabled: Mapped[bool]
+    changed_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("accounts.id", ondelete="SET NULL"))
+    changed_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
 
 class AiTask(Base):

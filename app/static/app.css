@@ -206,6 +206,7 @@ main.page-center {
 }
 
 .brand:hover { color: var(--text); }
+.brand-row { display: flex; align-items: center; gap: 12px; }
 
 .account {
   display: flex;
@@ -339,6 +340,7 @@ button.link:hover { background: none; color: var(--accent-hover); }
 .tone-ok { background: var(--ok-tint); color: var(--ok); }
 .tone-warm { background: var(--warm-tint); color: var(--warm); }
 .tone-neutral { background: var(--neutral-tint); color: var(--neutral); }
+.tone-error { background: var(--error-tint); color: var(--error); }
 
 .kicker {
   display: block;
@@ -424,6 +426,8 @@ input[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: var(--
   background: var(--accent-tint);
   color: var(--text);
 }
+
+.notice-warm { background: var(--warm-tint); color: var(--warm); }
 
 fieldset {
   min-width: 0;
@@ -530,6 +534,7 @@ td.nowrap { white-space: nowrap; }
 .signup { align-self: stretch; padding: 20px; border-radius: var(--radius-lg); box-shadow: var(--shadow); }
 .signup .field:last-of-type { margin-bottom: 18px; }
 .signup-note { margin: 12px 0 0; color: var(--muted); font-size: 0.875rem; text-align: center; }
+.signup .notice { margin: 0; }
 
 .sample { display: flex; flex-direction: column; gap: 14px; }
 
@@ -1110,6 +1115,65 @@ progress::-moz-progress-bar { border-radius: 999px; background: var(--accent); }
 
 .icon-btn:hover { background: var(--bg); color: var(--text); }
 .icon-linkedin, .icon-linkedin:hover { color: #0a66c2; }
+
+/* ---------------------------------------------------------------------------------------------- the console */
+.console-card { margin: 0 0 20px; }
+.console-card > h2 { margin-bottom: 14px; font-family: var(--font); font-size: 1.25rem; font-weight: 700; letter-spacing: 0; }
+.console-card > h2.console-hero { margin-bottom: 4px; font-family: var(--display); font-size: clamp(1.75rem, 1.4rem + 1.4vw, 2.125rem); font-weight: 800; letter-spacing: -0.02em; }
+.console-card .lead { margin-bottom: 16px; }
+
+.run-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
+.run-form .field { flex: 1 1 320px; margin: 0; }
+
+.stats { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; margin: 0 0 20px; }
+
+@media (min-width: 760px) {
+  .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+.card.stat { display: flex; flex-direction: column; gap: 10px; border-radius: var(--radius-lg); }
+.stat-label { margin: 0; color: var(--muted); font-family: var(--font); font-size: 0.875rem; font-weight: 600; letter-spacing: 0; }
+.stat-value { margin: 0; font-family: var(--display); font-size: 2rem; font-weight: 800; line-height: 1.1; }
+.stat-of { color: var(--muted); font-size: 1.125rem; font-weight: 600; }
+.stat .small { margin: 0; font-size: 0.875rem; }
+
+.card.stat-switch { flex-direction: row; align-items: center; justify-content: space-between; }
+.stat-state { margin: 4px 0 0; font-size: 1.25rem; font-weight: 700; }
+.stat-state.is-open { color: var(--ok); }
+.stat-state.is-paused { color: var(--warm); }
+
+button.switch {
+  display: flex;
+  justify-content: flex-start;
+  width: 64px;
+  min-height: 36px;
+  height: 36px;
+  padding: 4px;
+  border-radius: 999px;
+  background: #8a91a0;
+}
+
+button.switch[aria-checked="true"] { justify-content: flex-end; background: var(--ok-icon); }
+button.switch:hover { background: #6f7686; }
+button.switch[aria-checked="true"]:hover { background: var(--ok); }
+.knob { width: 28px; height: 28px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgb(18 20 28 / 25%); }
+
+meter {
+  display: block;
+  width: 100%;
+  height: 8px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent-tint);
+  overflow: hidden;
+}
+
+meter::-webkit-meter-bar { height: 8px; border: 0; border-radius: 999px; background: var(--accent-tint); }
+meter::-webkit-meter-optimum-value { border-radius: 999px; background: var(--accent); }
+meter::-moz-meter-bar { border-radius: 999px; background: var(--accent); }
+
+.strong-link { font-weight: 700; }
+.console-card .table-wrap { margin-bottom: 0; }
 
 /* ----------------------------------------------------------------------------------------------------- motion */
 @media (prefers-reduced-motion: reduce) {

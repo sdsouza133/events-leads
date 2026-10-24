@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from app import auth, domains, queue, ratelimit
+from app import auth, domains, flags, queue, ratelimit
 from app.config import Settings
 from app.models import Account, Run, RunStatus
 from app.pipeline import runs
@@ -38,9 +38,14 @@ FREE_RUN_USED = "Your company has already used its free run."
 
 
 @router.get("/", response_class=HTMLResponse)
-def start_page(request: Request, *, account: SignedIn, settings: AppSettings) -> HTMLResponse:
-    context: dict[str, Any] = {"account": account, "form": {}, "errors": {}, "paused": settings.pause_new_runs}
+def start_page(request: Request, *, session: DbSession, account: SignedIn, settings: AppSettings) -> HTMLResponse:
+    context: dict[str, Any] = {"account": account, "form": {}, "errors": {}, "paused": paused(session, settings)}
     return page(request, "start.html", context, settings)
+
+
+def paused(session: Session, settings: Settings) -> bool:
+    """Whether the start form is closed: an operator paused new runs in the console, or PAUSE_NEW_RUNS is set."""
+    return settings.pause_new_runs or flags.is_on(session, flags.NEW_RUNS_PAUSED)
 
 
 @router.post("/start", response_class=HTMLResponse)
@@ -60,7 +65,7 @@ def start(
         context = {"account": account, "form": form, "errors": errors}
         return page(request, "start.html", context, settings, status_code=status_code)
 
-    if settings.pause_new_runs:
+    if paused(session, settings):
         context = {"account": account, "form": form, "errors": {}, "paused": True}
         return page(request, "start.html", context, settings, status_code=503)
     if not common.csrf_ok(request, csrf):

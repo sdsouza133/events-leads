@@ -13,12 +13,13 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import auth, budget, queue
+from app import auth, budget, flags, queue
 from app.config import Settings, get_settings
 from app.main import create_app
-from app.models import Account, BudgetDay, Job, JobStatus, Run, RunGrant, RunStatus
+from app.models import Account, BudgetDay, Flag, Job, JobStatus, Run, RunGrant, RunStatus
 from app.pipeline import runs
-from app.web import console
+from app.pipeline.analyze import ANALYZE_SITE
+from app.web import console, start
 from tests.factories import make_account, make_run
 
 pytestmark = pytest.mark.db
@@ -90,7 +91,7 @@ def test_only_operators_see_the_console(client: TestClient, db: Session) -> None
     operator(client, db)
     page = client.get("/admin")
     assert page.status_code == 200
-    assert "<h1>Console</h1>" in page.text
+    assert ">Console</h1>" in page.text
     assert 'href="/admin">Console</a>' in client.get("/").text  # and every page links to it
 
 
@@ -118,10 +119,9 @@ def test_runs_are_listed_newest_first_with_their_status_and_cost(client: TestCli
 
     page = text(client.get("/admin"))
     assert page.index("northwind.com") < page.index("acmewidgets.com")
-    assert "collecting Finding posts about your events Error: 1 event failed: Apify 502" in page
+    assert "Searching Finding posts about your events Error: 1 event failed: Apify 502" in page
     assert "$0.40 of $3.00, $1.20 held" in page
-    assert "ready" in page
-    assert "$1.23 of $3.00 57 Apollo credits 42" in page
+    assert "Ready 42 $1.23 of $3.00 57 Apollo credits" in page
     requester = db.get(Account, older.account_id)
     assert requester is not None
     assert requester.email in page
@@ -172,7 +172,10 @@ def test_the_console_says_when_new_paid_work_is_paused(db: Session) -> None:
     app.dependency_overrides[get_settings] = lambda: Settings(admin_emails=OPERATOR, pause_new_runs=True)
     with TestClient(app) as client:
         operator(client, db)
-        assert "New paid work is paused" in text(client.get("/admin"))
+        page = client.get("/admin")
+        assert "New paid work is paused" in text(page)
+        assert "New runs Paused Set by PAUSE_NEW_RUNS on the server" in text(page)  # not "Open"
+        assert 'role="switch" aria-checked="true"' in page.text  # the switch keeps its own state
 
 
 # ---------------------------------------------------------------------------------------------------- canceling
@@ -294,3 +297,100 @@ def test_a_grant_needs_the_page_s_token(client: TestClient, db: Session) -> None
     assert response.status_code == 400
     assert "This page had expired" in response.text
     assert grants(db) == []
+
+
+# ------------------------------------------------------------------------------------------- running any company
+def test_an_operator_runs_any_company_without_its_email(client: TestClient, db: Session) -> None:
+    make_run(db, domain="acmewidgets.com", status=RunStatus.READY)  # the company has used its free run
+    db.commit()
+    account = operator(client, db)
+    response = client.post(
+        "/admin/runs",
+        data={"website": "https://www.AcmeWidgets.com/about", "csrf": csrf(client)},
+        follow_redirects=False,
+    )
+    run = db.scalars(select(Run).where(Run.account_id == account.id)).one()
+    assert (response.status_code, response.headers["location"]) == (303, f"/runs/{run.id}")
+    assert (run.domain, run.website_url, run.status, run.status_detail) == (
+        "acmewidgets.com",
+        "https://www.acmewidgets.com/about",
+        RunStatus.ANALYZING,
+        start.READING_SITE,
+    )
+    assert run.operator_run
+    assert run.budget_usd == Decimal("3.00")  # the same cap as any run
+    [job] = db.scalars(select(Job).where(Job.kind == ANALYZE_SITE)).all()
+    assert job.payload == {"run_id": str(run.id)}
+    assert "Getting your plan ready" in client.get(response.headers["location"]).text
+
+    page = text(client.get("/admin"))
+    assert "acmewidgets.com You Console Making the plan" in page
+
+
+def test_an_operator_s_run_leaves_the_company_its_free_run(client: TestClient, db: Session) -> None:
+    operator(client, db)
+    client.post("/admin/runs", data={"website": "acmewidgets.com", "csrf": csrf(client)})
+    assert runs.has_run_left(db, "acmewidgets.com", free_runs=1)
+
+
+@pytest.mark.parametrize(
+    ("data", "message"),
+    [
+        ({"website": "not a website"}, "Enter the company's website, for example acme.com."),
+        ({"website": ""}, "Enter the company's website, for example acme.com."),
+        ({"website": "acmewidgets.com", "csrf": "forged"}, "This page had expired"),
+    ],
+)
+def test_running_a_company_needs_a_website_and_the_page_s_token(
+    client: TestClient, db: Session, data: dict[str, str], message: str
+) -> None:
+    operator(client, db)
+    response = client.post("/admin/runs", data={"csrf": csrf(client), **data})
+    assert response.status_code == 400
+    assert message in text(response)
+    assert db.scalars(select(Run)).all() == []
+
+
+def test_only_operators_run_companies(client: TestClient, db: Session) -> None:
+    assert client.post("/admin/runs", data={"website": "acmewidgets.com"}).status_code == 401
+    requester = make_account(db, domain="otherwidgets.com")
+    sign_in_as(client, db, requester.id)
+    assert client.post("/admin/runs", data={"website": "acmewidgets.com", "csrf": csrf(client)}).status_code == 404
+    assert db.scalars(select(Run)).all() == []
+
+
+def test_the_console_counts_the_runs_started_today(client: TestClient, db: Session) -> None:
+    make_run(db).created_at = datetime.now(UTC) - timedelta(days=2)
+    make_run(db, domain="northwind.com")
+    db.commit()
+    operator(client, db)
+    assert "Runs today 1 Since midnight UTC" in text(client.get("/admin"))
+
+
+# ------------------------------------------------------------------------------------------------- the switch
+def test_the_switch_pauses_and_reopens_the_start_form(client: TestClient, db: Session) -> None:
+    account = operator(client, db)
+    assert 'role="switch" aria-checked="true"' in client.get("/admin").text
+
+    paused = client.post("/admin/new-runs", data={"take": "no", "csrf": csrf(client)}, follow_redirects=False)
+    assert (paused.status_code, paused.headers["location"]) == (303, "/admin?notice=paused")
+    assert flags.is_on(db, flags.NEW_RUNS_PAUSED)
+    assert 'role="switch" aria-checked="false"' in client.get("/admin").text
+    assert "We're not taking new requests right now" in client.get("/").text
+    form = {"website": "acmewidgets.com", "email": "jo@acmewidgets.com", "csrf": csrf(client)}
+    assert client.post("/start", data=form).status_code == 503
+    assert db.scalars(select(Run)).all() == []
+
+    client.post("/admin/new-runs", data={"take": "yes", "csrf": csrf(client)})
+    db.expire_all()
+    assert not flags.is_on(db, flags.NEW_RUNS_PAUSED)
+    assert 'action="/start"' in client.get("/").text
+    assert db.get(Flag, flags.NEW_RUNS_PAUSED).changed_by == account.id  # type: ignore[union-attr]
+
+
+def test_the_switch_needs_an_operator_and_the_page_s_token(client: TestClient, db: Session) -> None:
+    assert client.post("/admin/new-runs", data={"take": "no"}).status_code == 401
+    operator(client, db)
+    assert client.post("/admin/new-runs", data={"take": "no", "csrf": "forged"}).status_code == 400
+    assert client.post("/admin/new-runs", data={"take": "maybe", "csrf": csrf(client)}).status_code == 400
+    assert not flags.is_on(db, flags.NEW_RUNS_PAUSED)
