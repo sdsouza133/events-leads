@@ -147,6 +147,9 @@ def test_the_list_can_show_one_kind_of_attendee(client: TestClient, db: Session)
     assert "3 leads, ready to go" in speakers  # the heading still counts the whole list
     assert 'aria-current="true">Speaking' in speakers
     assert "Ana Attendee" in text(client.get(f"/runs/{run.id}?only=nonsense"))  # an unknown filter shows all
+    nobody = text(client.get(f"/runs/{run.id}?only=exhibiting"))  # nobody exhibiting: all, rather than none
+    assert "Ana Attendee" in nobody
+    assert 'aria-current="true">All' in nobody
 
 
 @pytest.mark.parametrize(
