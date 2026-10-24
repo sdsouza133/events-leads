@@ -47,8 +47,11 @@ stateDiagram-v2
     waiting_for_budget --> collecting: next day
 ```
 
-1. **analyze**: fetch the website safely (see Security), ask Claude for the ICP and keywords, then ask Claude with web
-   search for real events. Results are stored on the run for the requester to edit.
+1. **analyze**, two jobs. `analyze_site` reads the home page and up to four pages about the customers (see Security)
+   and asks Claude for the ICP; a site that can't be read, or has too little text, fails the run with the reason
+   instead of a guess. `find_events` asks Claude, with live web search, for real events, and builds up to four
+   LinkedIn searches per event. Results are stored on the run for the requester to edit. Both jobs stay within the
+   analysis budget, the only spend before approval.
 2. **collect**: for each approved event, one Apify run with its keyword searches, capped by `maxTotalChargeUsd`. Posts
    go into a shared cache keyed by event and query, so the next company asking about the same event reuses them.
 3. **qualify**: cheap text rules label the obvious posts; Claude labels the rest in batches. Labels are cached per
@@ -56,6 +59,19 @@ stateDiagram-v2
 4. **enrich**: Apollo bulk match by LinkedIn URL (10 people per call), cached per person. ICP scoring on the enriched
    title, seniority, industry and company size. Only verified emails are kept.
 5. **deliver**: the results link is emailed and the run is marked ready.
+
+### How the worker runs jobs
+
+- One job at a time per worker process; add processes for throughput. Jobs are claimed with `SKIP LOCKED`.
+- A handler reads what it needs and commits **before** any slow outside call, then writes its results; the worker
+  commits those together with the job's completion. No transaction stays open while a provider answers (production
+  enforces this: Postgres ends a session idle in a transaction for 60 seconds).
+- Paid calls follow ADR 0002: reserve, mark started, call, then settle or release by what the failure (or answer)
+  says it cost. A retried step first closes what its earlier attempt left open.
+- A heartbeat thread keeps a long job's claim fresh. Every minute the worker puts back jobs whose worker went silent
+  (5 minutes by default; on the last attempt the job gives up, which fails its run) and closes spend reservations
+  left open for over an hour.
+- A worker that lost its claim to another (it was too slow) drops its writes; the new owner redoes the work.
 
 ## Data model (main tables)
 

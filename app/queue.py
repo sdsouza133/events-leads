@@ -7,7 +7,8 @@ The life of a job:
    job; the job is now `running` and its attempt is counted.
 3. The worker does the work, then calls `complete`, `fail` (retry later with backoff, or give up), or `defer` (not
    ready yet, try again later without using up an attempt), in the same transaction as the job's own writes.
-4. If the worker dies, the job stays `running`; `release_stale` puts it back in the queue after a timeout.
+4. If the worker dies, the job stays `running`; `release_stale` puts it back in the queue after a timeout. A worker
+   on a long job calls `heartbeat` every so often, so the timeout can stay short without cutting off slow calls.
 
 A worker that was only slow can come back after its job was released and claimed by another. So `complete`, `fail`
 and `defer` change the job only while the calling worker still holds it, and report whether it did. When they report
@@ -18,6 +19,7 @@ Handlers must be idempotent: after a crash, the same job can run again.
 """
 
 import random
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -160,17 +162,44 @@ def defer(session: Session, job_id: int, worker: str, delay: timedelta, *, now: 
     return True
 
 
-def release_stale(session: Session, older_than: timedelta, *, now: datetime | None = None) -> int:
-    """Put back jobs whose worker stopped answering. Jobs out of attempts are marked failed instead."""
+def heartbeat(session: Session, job_id: int, worker: str, *, now: datetime | None = None) -> bool:
+    """The job is still being worked on: restart its stale timer. False: `worker` no longer holds it."""
+    result = session.execute(
+        update(Job)
+        .where(Job.id == job_id, Job.status == JobStatus.RUNNING, Job.locked_by == worker)
+        .values(locked_at=now or utcnow())
+    )
+    return rowcount(result) == 1
+
+
+@dataclass(frozen=True)
+class GivenUp:
+    """A job `release_stale` failed for good: its worker stopped answering on its last attempt."""
+
+    id: int
+    kind: str
+    payload: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class Released:
+    requeued: int
+    given_up: list[GivenUp]
+
+
+def release_stale(session: Session, older_than: timedelta, *, now: datetime | None = None) -> Released:
+    """Put back jobs whose worker stopped answering. Jobs out of attempts are marked failed instead, and returned,
+    so the caller can do what that kind of job does when it gives up (fail its run, for one)."""
     cutoff = (now or utcnow()) - older_than
     stale = (Job.status == JobStatus.RUNNING) & (Job.locked_at < cutoff)
-    give_up = session.execute(
+    given_up = session.execute(
         update(Job)
         .where(stale, Job.attempts >= Job.max_attempts)
         .values(status=JobStatus.FAILED, locked_by=None, locked_at=None, last_error="worker stopped responding")
-    )
+        .returning(Job.id, Job.kind, Job.payload)
+    ).all()
     retry = session.execute(update(Job).where(stale).values(status=JobStatus.QUEUED, locked_by=None, locked_at=None))
-    return rowcount(give_up) + rowcount(retry)
+    return Released(rowcount(retry), [GivenUp(job_id, kind, dict(payload)) for job_id, kind, payload in given_up])
 
 
 def counts(session: Session) -> dict[str, int]:

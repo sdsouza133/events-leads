@@ -1,4 +1,4 @@
-.PHONY: install fmt lint typecheck test check run migrate migration
+.PHONY: install fmt lint typecheck test check run worker migrate migration
 
 install:  ## Install the app and dev tools into .venv
 	uv sync
@@ -21,6 +21,9 @@ check: lint typecheck test  ## Everything CI runs
 
 run:
 	uv run uvicorn app.main:app --reload
+
+worker:  ## The background worker (fake providers unless PROVIDERS=real)
+	uv run python -m app.worker
 
 migrate:
 	uv run alembic upgrade head

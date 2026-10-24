@@ -1,5 +1,6 @@
 """Settings, read once from the environment (and a local .env in development)."""
 
+from decimal import Decimal
 from functools import lru_cache
 from typing import Any, Literal
 
@@ -29,6 +30,17 @@ class Settings(BaseSettings):
 
     # Signs session and CSRF tokens. Must be set (and long) outside dev and test.
     secret_key: SecretStr = SecretStr("dev-only-secret-key-change-me-0123456789")
+
+    # Spend caps for the dollar-billed services, Apify and Claude (PRD, "Limits").
+    run_budget_usd: Decimal = Field(default=Decimal("3.00"), gt=0)
+    # The part of a run spent before approval. At least what analyze_site reserves, or no run could start.
+    analysis_budget_usd: Decimal = Field(default=Decimal("0.50"), ge=Decimal("0.15"))
+    daily_cap_usd: Decimal = Field(default=Decimal("20.00"), gt=0)
+
+    # The background worker (ADR 0002).
+    worker_poll_seconds: float = Field(default=2.0, gt=0, le=60)
+    worker_heartbeat_seconds: int = Field(default=30, ge=1, le=300)
+    worker_stale_after_seconds: int = Field(default=300, ge=60)  # no heartbeat for this long: the job is put back
 
     # External services. "fake" runs everything offline on synthetic data (tests, local work, previews).
     providers: Literal["fake", "real"] = "fake"
@@ -77,6 +89,10 @@ class Settings(BaseSettings):
             raise ValueError("DATABASE_URL must be set outside dev and test")
         if self.env == "production" and self.providers != "real":
             raise ValueError("production must use PROVIDERS=real")
+        if self.analysis_budget_usd > self.run_budget_usd:
+            raise ValueError("ANALYSIS_BUDGET_USD can't be more than RUN_BUDGET_USD")
+        if self.worker_heartbeat_seconds * 3 > self.worker_stale_after_seconds:
+            raise ValueError("WORKER_STALE_AFTER_SECONDS must be at least three heartbeats")
         return self
 
     @property

@@ -16,6 +16,17 @@ What to do when operating the service. Keep it current: every incident should le
 2. If the bad version ran a migration, check that migration's `downgrade()` is safe before running
    `alembic downgrade -1`. Prefer a forward fix when data was written in the new shape.
 
+## The worker
+
+- Start: `python -m app.worker` (locally: `make worker`). Same image as the web service, different start command.
+- SIGTERM (a redeploy) lets the current job finish, then exits. A job cut off by a hard kill is put back after
+  `WORKER_STALE_AFTER_SECONDS` (5 minutes) and its open spend reservation is closed by the rules in ADR 0002.
+- Logs: every job writes `job started` and `job ended` (with `job_id`, `kind`, `run_id`, `ms`); failures write
+  `job failed` with the error and whether it will be retried. `housekeeping` lines report jobs put back and
+  reservations closed.
+- A run stuck in `analyzing`: look up its jobs by `run_id`. A job `queued` with a future `run_after` is waiting
+  (retry backoff, or the daily cap: it resumes after midnight UTC). A job `failed` should have failed its run too.
+
 ## Pausing spend immediately
 
 Set `PAUSE_NEW_RUNS=true` on the worker service. Runs already collecting finish their current step and stop; nothing new

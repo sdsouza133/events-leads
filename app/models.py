@@ -340,7 +340,11 @@ class SpendEntry(Base):
     units: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))
     unit: Mapped[str | None] = mapped_column(String(16))
     note: Mapped[str | None] = mapped_column(String(300))
+    step_key: Mapped[str | None] = mapped_column(
+        String(200), index=True, comment="The paid step this is for, e.g. '<run id>:analyze_site' (ADR 0002 recovery)"
+    )
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    started_at: Mapped[datetime | None] = mapped_column(comment="When the call began; unset means it never started")
     settled_at: Mapped[datetime | None]
 
 
