@@ -304,7 +304,7 @@ def _render(
     context: dict[str, Any] = {
         "account": account,
         "paused": settings.pause_new_runs,
-        "taking": not flags.is_on(session, flags.NEW_RUNS_PAUSED),
+        "switched_on": not flags.is_on(session, flags.NEW_RUNS_PAUSED),  # the switch, as the operator left it
         "budget": _usd(settings.run_budget_usd),
         "manual_ai": settings.manual_ai,
         "operator_api": settings.operator_api_token is not None,
