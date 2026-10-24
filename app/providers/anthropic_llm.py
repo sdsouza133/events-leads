@@ -251,6 +251,7 @@ class AnthropicLlm:
         notes: list[str] = []
         results: dict[str, str | None] = {}
         cost = Decimal(0)
+        searches_left = self._max_web_searches  # for the whole research: each paused part is a request of its own
         for _ in range(MAX_PAUSE_CONTINUATIONS + 1):
             try:
                 response, call_cost = self._call(
@@ -259,15 +260,16 @@ class AnthropicLlm:
                     max_tokens=16000,
                     system=RESEARCH_SYSTEM,
                     messages=messages,
-                    tools=[{**WEB_SEARCH, "max_uses": self._max_web_searches}],
+                    tools=[{**WEB_SEARCH, "max_uses": searches_left}],
                     timeout=300.0,
                 )
             except ProviderError as exc:
                 raise _plus(exc, cost) from exc  # the parts before a pause were billed too
             cost += call_cost
             _collect(response.content, notes, results)
-            if response.stop_reason != "pause_turn":
-                break
+            searches_left -= _searches(response)
+            if response.stop_reason != "pause_turn" or searches_left <= 0:
+                break  # finished, or out of searches: what it found so far is the research
             # A long server-tool turn paused: send it back as-is, after the parts already sent (consecutive
             # assistant messages form one turn), and let Claude carry on.
             messages = [*messages, {"role": "assistant", "content": response.content}]
@@ -339,6 +341,12 @@ def _parsed[T: BaseModel](response: Any, shape: type[T], cost: Decimal) -> T:
     if not isinstance(value, shape):
         raise ProviderError("Claude returned no structured answer", retryable=True, cost_usd=cost)
     return value
+
+
+def _searches(response: Any) -> int:
+    """The web searches a response was billed for."""
+    server_tools = getattr(getattr(response, "usage", None), "server_tool_use", None)
+    return int(getattr(server_tools, "web_search_requests", 0) or 0)
 
 
 def _billed(body: dict[str, Any]) -> Decimal:
