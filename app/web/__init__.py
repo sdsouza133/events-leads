@@ -3,7 +3,7 @@ third-party scripts."""
 
 from fastapi import APIRouter
 
-from app.web import console, outbox, plan, results, run_page, start
+from app.web import console, operator_api, outbox, plan, results, run_page, start
 
 router = APIRouter()
 router.include_router(start.router)
@@ -12,3 +12,4 @@ router.include_router(plan.router)
 router.include_router(results.router)
 router.include_router(outbox.router)
 router.include_router(console.router)
+router.include_router(operator_api.router)
