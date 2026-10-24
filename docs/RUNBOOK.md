@@ -24,7 +24,8 @@ What to do when operating the service. Keep it current: every incident should le
   `WORKER_STALE_AFTER_SECONDS` (5 minutes) and its open spend reservation is closed by the rules in ADR 0002.
 - Logs: every job writes `job started` and `job ended` (with `job_id`, `kind`, `run_id`, `ms`); failures write
   `job failed` with the error and whether it will be retried. `housekeeping` lines report jobs put back and
-  reservations closed.
+  reservations closed. One `retention` job always waits in the queue for its next hourly round (see
+  [Personal data after 30 days](#personal-data-after-30-days)).
 - A run stuck in `analyzing`: look up its jobs by `run_id`. A job `queued` with a future `run_after` is waiting
   (retry backoff, or the daily cap: it resumes after midnight UTC). A job `failed` should have failed its run too.
 - A run stuck in `collecting`: look at its `run_events`. `searching` with an `apify_run_id` is polled every
@@ -62,6 +63,29 @@ latest failed jobs (their `last_error`).
 - **Give a company another run:** *Grant a company another run*, with its website or domain and a note. Each grant is
   one more run on top of `FREE_RUNS_PER_DOMAIN`, and the company starts it from the start form as usual.
 
+## Personal data after 30 days
+
+The `retention` job (`app/pipeline/retention.py`) deletes personal data once an hour. Each worker's housekeeping
+queues it whenever no copy is waiting, so one copy always waits for its next round; the console counts it under
+"waiting for later". Each round:
+
+- marks the runs whose results have expired (`RESULTS_DAYS` after they were ready) `expired` and deletes their
+  leads; runs that failed or were canceled lose their leads 30 days after they stopped;
+- deletes posts fetched more than 30 days ago that no list holds any more (a post's labels and links to events go
+  with it), and people no list holds unless Apollo or the email check looked them up in the last 30 days (that
+  answer is reused); and labels, searches and manual AI questions older than 30 days;
+- deletes kept emails (previews) after 30 days, sign-up counters (they hold IP addresses) after a day, expired
+  sign-in links and sessions, and jobs that finished more than 30 days ago.
+
+Its log line, `old data deleted`, gives how many of each went and never names anyone. A round that fails is retried
+like any other job, and if it runs out of attempts the console lists it under failed jobs and housekeeping queues a
+fresh copy within a minute. A round that fails on `run_leads`' foreign keys met a run adding someone to its list at
+that moment: the database refused to delete them, and the retry leaves them be. To run a round now:
+
+```sql
+UPDATE jobs SET run_after = now() WHERE kind = 'retention' AND status = 'queued';
+```
+
 ## Manual AI mode
 
 With `PROVIDERS=real` and no `ANTHROPIC_API_KEY`, nothing goes to Claude. Each question the pipeline would ask it
@@ -81,8 +105,8 @@ Each task lists its `question` (the website's pages; the analysis and today's da
 waiting on it, and the `answer_schema` its answer must fit. A 422 lists what's wrong in `problems`: fix it and post
 again. Events must fall within 60 days before and 90 days after the question's `today`, each with the page it was
 found on as `source_url`; labels must cover each post exactly once. Each run asks for its own events. Questions,
-answered or not, are deleted after 30 days, since they can quote people's posts. Once `ANTHROPIC_API_KEY` is set,
-Claude answers again and any task still open is simply never used.
+answered or not, are deleted after 30 days by the retention job, since they can quote people's posts. Once
+`ANTHROPIC_API_KEY` is set, Claude answers again and any task still open is simply never used.
 
 ## Pausing spend immediately
 

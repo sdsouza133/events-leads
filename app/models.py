@@ -256,7 +256,7 @@ class Post(Base):
     author_kind: Mapped[str] = mapped_column(String(16), default="person", comment="person or company")
     text: Mapped[str] = mapped_column(Text, default="")
     posted_at: Mapped[datetime | None]
-    fetched_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    fetched_at: Mapped[datetime] = mapped_column(server_default=func.now(), index=True)
 
 
 class EventPost(Base):
@@ -294,7 +294,7 @@ class PostLabel(Base):
     reason: Mapped[str | None] = mapped_column(Text)
     method: Mapped[str] = mapped_column(String(16), comment="rule or model")
     model: Mapped[str | None] = mapped_column(String(64))
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), index=True)
 
 
 class Person(Base):
@@ -323,14 +323,21 @@ class Person(Base):
 
 
 class Lead(Base):
-    """A person on a run's list, with why they were included or left out."""
+    """A person on a run's list, with why they were included or left out.
+
+    The person and the post stay as long as the lead does: the database refuses to delete either while a lead
+    points at it (RESTRICT), so deleting old shared data (`app/pipeline/retention.py`) can't take a person off a list
+    that is still shown, even when a run picks them at the moment their data is deleted.
+    """
 
     __tablename__ = "run_leads"
 
     run_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("runs.id", ondelete="CASCADE"), primary_key=True)
-    person_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("people.id", ondelete="CASCADE"), primary_key=True)
+    person_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("people.id", ondelete="RESTRICT"), primary_key=True, index=True
+    )
     event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"))
-    post_id: Mapped[str] = mapped_column(ForeignKey("posts.id", ondelete="CASCADE"))
+    post_id: Mapped[str] = mapped_column(ForeignKey("posts.id", ondelete="RESTRICT"), index=True)
     attendance: Mapped[str] = mapped_column(String(32))
     icp_score: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
     icp_reasons: Mapped[list[Any]] = mapped_column(default=list, server_default=text("'[]'::jsonb"))

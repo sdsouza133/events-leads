@@ -2,8 +2,8 @@
 
 Each process runs one job at a time; run more processes for more throughput. While a job runs, a heartbeat thread
 keeps its claim fresh, so `release_stale` hands a job to another worker only when its worker has really stopped.
-Between jobs the worker does the housekeeping: it puts back jobs whose worker died and closes the spend reservations
-such workers left open.
+Between jobs the worker does the housekeeping: it puts back jobs whose worker died, closes the spend reservations
+such workers left open, and queues the hourly job that deletes old personal data (`app/pipeline/retention.py`).
 
 SIGTERM (a redeploy) and SIGINT stop the worker after the job it is running, which starts no new paid call meanwhile:
 a job about to make one is put back for the next worker.
@@ -35,6 +35,7 @@ from app.models import JobStatus
 from app.pipeline.base import Defer, GiveUp, JobContext, JobKind, Payload
 from app.pipeline.jobs import JOBS
 from app.pipeline.paid import SpendingPausedError
+from app.pipeline.retention import RETENTION, schedule
 from app.providers import manual
 from app.providers.registry import build_providers
 from app.providers.types import AnswerPendingError, ProviderError
@@ -180,8 +181,8 @@ class Worker:
         self.maintain()
 
     def maintain(self) -> None:
-        """Put back jobs whose worker stopped answering, close reservations nobody came back for, and delete manual
-        AI questions past the 30 days personal data is kept."""
+        """Put back jobs whose worker stopped answering, close reservations nobody came back for, and make sure the
+        retention job is queued (when this worker runs it)."""
         stale_after = timedelta(seconds=self.ctx.settings.worker_stale_after_seconds)
         with session_scope() as session:
             released = queue.release_stale(session, stale_after, now=self.ctx.now())
@@ -192,16 +193,16 @@ class Worker:
                     self._give_up(kind.on_give_up, session, job.payload, context)
         with session_scope() as session:
             closed = budget.sweep(session, RESERVATIONS_OPEN_AT_MOST, now=self.ctx.now())
-        with session_scope() as session:
-            forgotten = manual.forget_old_tasks(session, now=self.ctx.now())
-        if released.requeued or released.given_up or closed or forgotten:
+        if RETENTION in self.kinds:
+            with session_scope() as session:
+                schedule(session, now=self.ctx.now())
+        if released.requeued or released.given_up or closed:
             log.info(
                 "housekeeping",
                 extra={
                     "requeued_jobs": released.requeued,
                     "given_up_jobs": len(released.given_up),
                     "closed_reservations": closed,
-                    "forgotten_ai_tasks": forgotten,
                 },
             )
 
