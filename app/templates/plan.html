@@ -69,12 +69,12 @@
     {{ error(key) }}
     <div class="field">
       <label for="{{ key }}-label">Who they are</label>
-      <input type="text" id="{{ key }}-label" name="{{ key }}-label" value="{{ buyer.label }}"{% if errors[key] %} aria-invalid="true"{% endif %}>
+      <input type="text" id="{{ key }}-label" name="{{ key }}-label" value="{{ buyer.label }}"{% if errors[key] %} aria-invalid="true" aria-describedby="{{ key }}-error"{% endif %}>
     </div>
     <div class="field">
       <label for="{{ key }}-keywords">Words in their job titles</label>
       <p class="hint" id="{{ key }}-hint">Separated by commas, for example: marketing, demand gen</p>
-      <input type="text" id="{{ key }}-keywords" name="{{ key }}-keywords" value="{{ buyer.keywords }}" aria-describedby="{{ key }}-hint"{% if errors[key] %} aria-invalid="true"{% endif %}>
+      <input type="text" id="{{ key }}-keywords" name="{{ key }}-keywords" value="{{ buyer.keywords }}" aria-describedby="{{ key }}-hint{% if errors[key] %} {{ key }}-error{% endif %}"{% if errors[key] %} aria-invalid="true"{% endif %}>
     </div>
     <fieldset class="choices">
       <legend>Seniority (optional)</legend>
