@@ -20,7 +20,7 @@ from app.config import Settings
 from app.db import session_scope
 from app.models import Account, Job, JobStatus, Run, SpendEntry, SpendStatus
 from app.pipeline.base import DONE, Defer, JobContext, JobKind, Outcome, Payload
-from app.pipeline.paid import SpendingPausedError
+from app.pipeline.paid import PAUSED_RECHECK, check_not_paused
 from app.providers.registry import build_providers
 from app.providers.types import ProviderError
 from app.worker import Worker, describe
@@ -99,18 +99,37 @@ def test_a_job_held_by_the_pause_waits_without_using_an_attempt(db: Session) -> 
 
     def handle(ctx: JobContext, session: Session, payload: Payload) -> Outcome:
         note_on_run("half done")(ctx, session, payload)
-        raise SpendingPausedError
+        check_not_paused(ctx)
+        return DONE
 
-    make_worker(handle).run_once()
+    w = Worker(dataclasses.replace(context(), settings=Settings(pause_new_runs=True)), {"test": JobKind(handle)})
+    w.run_once()
     paused = job(db, job_id)
     assert (paused.status, paused.attempts, paused.run_after, paused.last_error) == (
         JobStatus.QUEUED,
         0,
-        NOW + worker.PAUSED_RECHECK,
+        NOW + PAUSED_RECHECK,
         None,
     )
     db.refresh(run)
     assert run.status_detail is None  # what it wrote before stopping was rolled back
+
+
+def test_a_worker_told_to_stop_starts_no_paid_call_and_hands_the_job_on(db: Session) -> None:
+    job_id = one_job(db)
+    called: list[str] = []
+
+    def handle(ctx: JobContext, session: Session, payload: Payload) -> Outcome:
+        w.stop()  # SIGTERM arrives while the job runs: a redeploy, or the worker scaled down
+        check_not_paused(ctx)
+        called.append("a paid call")
+        return DONE
+
+    w = make_worker(handle)
+    w.run_once()
+    assert called == []
+    handed_on = job(db, job_id)
+    assert (handed_on.status, handed_on.attempts, handed_on.run_after) == (JobStatus.QUEUED, 0, NOW)  # due at once
 
 
 def test_a_failure_rolls_back_and_is_retried_later(db: Session) -> None:

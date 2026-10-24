@@ -16,11 +16,12 @@ from app.pipeline import enrich
 from app.pipeline.base import DONE, JobContext
 from app.pipeline.enrich import DELIVER, ENRICH
 from app.pipeline.jobs import JOBS
+from app.pipeline.paid import PAUSED_RECHECK
 from app.providers.fakes import FakeMailer
 from app.providers.registry import build_providers
 from app.providers.types import EnrichedPerson, MatchResult, ProviderError
 from app.schemas import SiteAnalysis
-from app.worker import PAUSED_RECHECK, Worker
+from app.worker import Worker
 from tests.factories import make_run
 
 pytestmark = pytest.mark.db

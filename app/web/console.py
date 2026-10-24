@@ -94,10 +94,11 @@ class Grant:
 def console(
     request: Request, *, session: DbSession, settings: AppSettings, account: SignedIn, notice: str = ""
 ) -> HTMLResponse:
-    operator = _operator(request, account, settings)
-    if isinstance(operator, HTMLResponse):
-        return operator
-    return _render(request, session, operator, settings, notice=NOTICES.get(notice, ""))
+    refusal = _refusal(request, account, settings)
+    if refusal is not None:
+        return refusal
+    assert account is not None  # noqa: S101 (_refusal turned away anyone signed out)
+    return _render(request, session, account, settings, notice=NOTICES.get(notice, ""))
 
 
 @router.get("/admin/runs/{run_id}/cancel", response_class=HTMLResponse)
@@ -105,13 +106,14 @@ def cancel_page(
     request: Request, run_id: uuid.UUID, *, session: DbSession, settings: AppSettings, account: SignedIn
 ) -> HTMLResponse:
     """Canceling can't be undone, so the console's link asks first, here."""
-    operator = _operator(request, account, settings)
-    if isinstance(operator, HTMLResponse):
-        return operator
+    refusal = _refusal(request, account, settings)
+    if refusal is not None:
+        return refusal
+    assert account is not None  # noqa: S101 (_refusal turned away anyone signed out)
     run = session.get(Run, run_id)
     if run is None:
-        return page(request, "not_found.html", {"account": operator}, settings, status_code=404)
-    return _cancel_page(request, run, operator, settings)
+        return page(request, "not_found.html", {"account": account}, settings, status_code=404)
+    return _cancel_page(request, run, account, settings)
 
 
 @router.post("/admin/runs/{run_id}/cancel", response_model=None)
@@ -124,14 +126,15 @@ def cancel(
     account: SignedIn,
     csrf: Annotated[str, Form()] = "",
 ) -> Response:
-    operator = _operator(request, account, settings)
-    if isinstance(operator, HTMLResponse):
-        return operator
+    refusal = _refusal(request, account, settings)
+    if refusal is not None:
+        return refusal
+    assert account is not None  # noqa: S101 (_refusal turned away anyone signed out)
     run = runs.locked(session, run_id)
     if run is None:
-        return page(request, "not_found.html", {"account": operator}, settings, status_code=404)
+        return page(request, "not_found.html", {"account": account}, settings, status_code=404)
     if not common.csrf_ok(request, csrf):
-        return _cancel_page(request, run, operator, settings, error=EXPIRED_FORM, status_code=400)
+        return _cancel_page(request, run, account, settings, error=EXPIRED_FORM, status_code=400)
     if run.status in FINISHED:
         notice = "finished"
     else:
@@ -140,7 +143,7 @@ def cancel(
         run.status, run.status_detail, run.completed_at = RunStatus.CANCELED, CANCELED, common.now()
         run.error = "; ".join(filter(None, [run.error, "canceled by an operator"]))
         notice = "canceled"
-        log.info("run canceled", extra={"run_id": str(run.id), "account_id": str(operator.id)})
+        log.info("run canceled", extra={"run_id": str(run.id), "account_id": str(account.id)})
     session.commit()  # before the redirect: the session's own commit comes after the response is sent
     return RedirectResponse(f"/admin?notice={notice}#runs", status_code=303)
 
@@ -157,9 +160,10 @@ def grant(
     csrf: Annotated[str, Form()] = "",
 ) -> Response:
     """One more run for a company, on top of its free ones. Each grant is good for one run."""
-    operator = _operator(request, account, settings)
-    if isinstance(operator, HTMLResponse):
-        return operator
+    refusal = _refusal(request, account, settings)
+    if refusal is not None:
+        return refusal
+    assert account is not None  # noqa: S101 (_refusal turned away anyone signed out)
     form = {"company": company, "note": note}
     errors: dict[str, str] = {}
     site = domains.website(company)
@@ -170,20 +174,20 @@ def grant(
     elif len(note.strip()) > MAX_NOTE_LENGTH:
         errors["note"] = f"Keep the note to {MAX_NOTE_LENGTH} characters."
     if errors or site is None:
-        return _render(request, session, operator, settings, errors=errors, form=form, status_code=400)
-    session.add(RunGrant(domain=site[1], granted_by=operator.id, note=note.strip() or None))
+        return _render(request, session, account, settings, errors=errors, form=form, status_code=400)
+    session.add(RunGrant(domain=site[1], granted_by=account.id, note=note.strip() or None))
     session.commit()
-    log.info("run granted", extra={"domain": site[1], "account_id": str(operator.id)})
+    log.info("run granted", extra={"domain": site[1], "account_id": str(account.id)})
     return RedirectResponse("/admin?notice=granted#grants", status_code=303)
 
 
-def _operator(request: Request, account: Account | None, settings: Settings) -> Account | HTMLResponse:
-    """The signed-in operator, or the page for anyone else: sign in, or, signed in as someone else, not found."""
+def _refusal(request: Request, account: Account | None, settings: Settings) -> HTMLResponse | None:
+    """The page for anyone but an operator (sign in, or, signed in as someone else, not found); None for one."""
     if account is None:
         return page(request, "sign_in_needed.html", {"account": None}, settings, status_code=401)
     if not common.is_operator(account, settings):
         return page(request, "not_found.html", {"account": account}, settings, status_code=404)
-    return account
+    return None
 
 
 def _cancel_page(

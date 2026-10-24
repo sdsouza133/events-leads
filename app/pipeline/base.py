@@ -23,11 +23,17 @@ def utcnow() -> datetime:
     return datetime.now(UTC)
 
 
+def never() -> bool:
+    return False
+
+
 @dataclass(frozen=True)
 class JobContext:
     settings: Settings
     providers: Providers
     clock: Callable[[], datetime] = utcnow
+    stopping: Callable[[], bool] = never
+    """True once the worker has been told to stop (a redeploy, scaling down): no paid call starts after that."""
 
     def now(self) -> datetime:
         return self.clock()

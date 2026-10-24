@@ -5,9 +5,11 @@ keeps its claim fresh, so `release_stale` hands a job to another worker only whe
 Between jobs the worker does the housekeeping: it puts back jobs whose worker died and closes the spend reservations
 such workers left open.
 
-SIGTERM (a redeploy) and SIGINT stop the worker after the job it is running.
+SIGTERM (a redeploy) and SIGINT stop the worker after the job it is running, which starts no new paid call meanwhile:
+a job about to make one is put back for the next worker.
 """
 
+import dataclasses
 import logging
 import os
 import random
@@ -41,7 +43,6 @@ log = logging.getLogger(__name__)
 
 MAINTENANCE_EVERY_SECONDS = 60.0
 RESERVATIONS_OPEN_AT_MOST = timedelta(hours=1)
-PAUSED_RECHECK = timedelta(minutes=5)
 ANSWER_RECHECK = timedelta(minutes=2)  # manual AI mode: how soon an operator's answer is picked up
 
 
@@ -68,10 +69,10 @@ def describe(exc: BaseException) -> str:
 
 class Worker:
     def __init__(self, ctx: JobContext, kinds: Mapping[str, JobKind], *, name: str | None = None) -> None:
-        self.ctx = ctx
+        self._stop = threading.Event()
+        self.ctx = dataclasses.replace(ctx, stopping=self._stop.is_set)  # a stopping worker starts no paid call
         self.kinds = dict(kinds)
         self.name = name or worker_name()
-        self._stop = threading.Event()
         self._last_maintenance: float | None = None
 
     def stop(self) -> None:
@@ -124,9 +125,9 @@ class Worker:
             else:  # released as stale and claimed by another worker, which redoes the work
                 session.rollback()
                 log.warning("job was taken over by another worker; this attempt's writes were dropped", extra=context)
-        except SpendingPausedError:  # PAUSE_NEW_RUNS: the job waits, without using up an attempt
+        except SpendingPausedError as exc:  # nothing billed may start now: the job waits, attempt not used up
             session.rollback()
-            self._wait(job_id, PAUSED_RECHECK, "job paused: PAUSE_NEW_RUNS is set", context)
+            self._wait(job_id, exc.retry_after, "job paused", {**context, "reason": str(exc)})
         except AnswerPendingError:  # manual AI mode: the job waits for an operator, without using up an attempt
             session.rollback()
             self._wait(job_id, ANSWER_RECHECK, "job waiting for an operator's answer", context)

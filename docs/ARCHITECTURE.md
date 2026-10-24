@@ -101,7 +101,9 @@ stateDiagram-v2
 - A worker that lost its claim to another (it was too slow) drops its writes; the new owner redoes the work.
 - `PAUSE_NEW_RUNS` stops spending without stopping the worker: every call to Claude, Apify, Apollo or Reoon first
   checks it, and a job that would make one is put back for 5 minutes, without using up an attempt. Polling an Apify
-  search already running goes on, so its posts aren't lost.
+  search already running goes on, so its posts aren't lost. A worker reads its settings when it starts, and changing
+  the variable restarts it, so a worker told to stop starts no paid call either: its job goes straight back for the
+  next worker.
 
 ### Manual AI mode
 

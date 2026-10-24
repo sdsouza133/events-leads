@@ -1,5 +1,7 @@
 """The paid-call protocol (ADR 0002): reserve, mark started, call, then settle or release by what happened."""
 
+import dataclasses
+from datetime import timedelta
 from decimal import Decimal
 
 import pytest
@@ -59,6 +61,17 @@ def test_while_paused_nothing_is_reserved_or_called(db: Session) -> None:
             call=call,
         )
     assert called == []
+    assert spend(db, run) == []
+
+
+def test_a_stopping_worker_starts_no_paid_call(db: Session) -> None:
+    run = committed_run(db)
+    ctx = dataclasses.replace(context(), stopping=lambda: True)
+    with pytest.raises(SpendingPausedError) as exc:
+        paid_call(
+            ctx, run_id=run.id, step="analyze_site", provider="claude", estimate=ESTIMATE, call=lambda: answer("1")
+        )
+    assert exc.value.retry_after == timedelta(0)  # the next worker carries on at once
     assert spend(db, run) == []
 
 
