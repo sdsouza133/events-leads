@@ -14,8 +14,11 @@ import pytest
 os.environ.setdefault("ENV", "test")
 os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://el:el@127.0.0.1:5432/el_test")
 
-from app.config import get_settings
+from app.config import Settings, get_settings
 from app.db import database_is_reachable, get_engine, get_sessionmaker
+
+# Tests never read a developer's .env: what they see comes from the variables set here and in each test.
+Settings.model_config["env_file"] = None
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:

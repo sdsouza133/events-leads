@@ -74,7 +74,9 @@ stateDiagram-v2
 
 ## Cost controls
 
-- Nothing paid runs before the requester signs in and approves.
+- Nothing runs before the requester signs in. The analyze step then runs before approval, because it produces the
+  plan the requester approves. It calls only Claude, has its own cap ($0.50, part of the run's $3) and counts toward
+  the daily cap. Apify, Apollo and Reoon run only after the requester approves.
 - Dollar-billed calls (Apify, Claude) first **reserve** their estimated cost against the run's cap and the day's cap in one database
   transaction (row lock on today's budget), so two workers can't both squeeze under the limit. Actual cost is
   settled afterwards.
@@ -106,7 +108,10 @@ A load test in the QA repo checks the web tier at 500 concurrent users and the q
 - **SSRF:** the website fetcher resolves the host itself, refuses private, loopback, link-local and reserved
   addresses, connects to the address it checked (no DNS rebinding), re-checks every redirect, and caps size and time.
 - **Headers:** strict Content-Security-Policy, HSTS, no framing.
-- **Secrets:** only in environment variables (Railway); never in the repo or logs. Logs mask email addresses.
+- **Secrets:** only in environment variables (Railway); never in the repo or logs.
+- **Logs:** identify people by internal IDs (account, run, person). Lead data (names, emails, LinkedIn URLs) and
+  sign-in links are never logged. A requester's email appears only masked (`j***@acme.example`, via `mask_email`),
+  on the sign-in and rate-limit lines written before an account exists.
 - **Data retention:** personal data in results and caches is deleted after 30 days.
 
 ## Environments
