@@ -58,7 +58,9 @@ def build_providers(settings: Settings) -> Providers:
         return value.get_secret_value()  # type: ignore[attr-defined, no-any-return]
 
     llm = AnthropicLlm(
-        client=anthropic.Anthropic(api_key=secret(settings.anthropic_api_key), max_retries=2),
+        # No retries inside the SDK: an attempt that timed out may have been billed, and its cost has to reach the
+        # budget (ADR 0002). The job queue retries instead, accounting for each attempt.
+        client=anthropic.Anthropic(api_key=secret(settings.anthropic_api_key), max_retries=0),
         analyze_model=settings.analyze_model,
         classify_model=settings.classify_model,
         analyze_effort=settings.analyze_effort,
