@@ -53,15 +53,17 @@ form takes no new requests, and jobs about to spend wait until it's unset.</p>
     <p class="stat-value">{{ today.runs }}</p>
     <p class="small">Since midnight UTC ({{ today.day }}).</p>
   </section>
+  {% set taking = switched_on and not paused %}
   <section class="card stat stat-switch" aria-labelledby="new-runs-title">
     <div>
       <h2 class="stat-label" id="new-runs-title">New runs</h2>
       <p class="stat-state {{ 'is-open' if taking else 'is-paused' }}">{{ "Open" if taking else "Paused" }}</p>
+      {% if paused %}<p class="small">Set by <code>PAUSE_NEW_RUNS</code> on the server</p>{% endif %}
     </div>
     <form method="post" action="/admin/new-runs">
       <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
-      <input type="hidden" name="take" value="{{ 'no' if taking else 'yes' }}">
-      <button type="submit" class="switch" role="switch" aria-checked="{{ 'true' if taking else 'false' }}" aria-labelledby="new-runs-title"><span class="knob"></span></button>
+      <input type="hidden" name="take" value="{{ 'no' if switched_on else 'yes' }}">
+      <button type="submit" class="switch" role="switch" aria-checked="{{ 'true' if switched_on else 'false' }}" aria-labelledby="new-runs-title"><span class="knob"></span></button>
     </form>
   </section>
 </div>

@@ -172,7 +172,10 @@ def test_the_console_says_when_new_paid_work_is_paused(db: Session) -> None:
     app.dependency_overrides[get_settings] = lambda: Settings(admin_emails=OPERATOR, pause_new_runs=True)
     with TestClient(app) as client:
         operator(client, db)
-        assert "New paid work is paused" in text(client.get("/admin"))
+        page = client.get("/admin")
+        assert "New paid work is paused" in text(page)
+        assert "New runs Paused Set by PAUSE_NEW_RUNS on the server" in text(page)  # not "Open"
+        assert 'role="switch" aria-checked="true"' in page.text  # the switch keeps its own state
 
 
 # ---------------------------------------------------------------------------------------------------- canceling
