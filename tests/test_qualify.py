@@ -29,8 +29,9 @@ from app.models import (
 )
 from app.pipeline import qualify
 from app.pipeline.base import JobContext
+from app.pipeline.enrich import ENRICH
 from app.pipeline.jobs import JOBS
-from app.pipeline.qualify import ENRICH, QUALIFY
+from app.pipeline.qualify import QUALIFY
 from app.providers.fakes import FakeLlm
 from app.providers.registry import build_providers
 from app.providers.types import Answer, FetchedPage, ProviderError

@@ -35,6 +35,11 @@ What to do when operating the service. Keep it current: every incident should le
   is labeled (`method` rule, model, or skipped when Claude refused the post); `error` on the run notes when its
   budget ran out mid-way. A run failed in `qualifying` with nothing labeled usually means Claude rejected the
   request itself (the job's `last_error` names the status): check `ANTHROPIC_API_KEY` and `CLASSIFY_MODEL`.
+- A run stuck in `enriching`: its `enrich` job defers to itself between turns. `apollo_credits_used` on the run
+  grows by one per person Apollo found, up to `APOLLO_CREDITS_PER_RUN`. `run_leads.exclude_reason` says why each
+  person was left off the list. A run failed in `enriching` usually means Apollo rejected the request (check
+  `APOLLO_API_KEY` and the account's credits). A run `ready` whose `error` says "results email not sent" has its
+  results; the requester can sign in to see them.
 
 ## Pausing spend immediately
 

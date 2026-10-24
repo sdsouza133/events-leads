@@ -29,13 +29,13 @@ from app.budget import BudgetExceededError
 from app.models import Event, EventPost, Lead, Person, Post, PostLabel, Run, RunEvent, RunEventStatus, RunStatus
 from app.pipeline import rules, runs
 from app.pipeline.base import DONE, Defer, JobContext, Outcome, Payload
+from app.pipeline.enrich import ENRICH
 from app.pipeline.paid import paid_call, step_key
 from app.providers.pricing import claude_label_estimate
 from app.providers.types import ProviderError
-from app.schemas import QUALIFYING_LABELS, AttendanceLabel, LabeledPost, PostToLabel, SiteAnalysis
+from app.schemas import MOST_TELLING, QUALIFYING_LABELS, AttendanceLabel, LabeledPost, PostToLabel, SiteAnalysis
 
 QUALIFY = "qualify"
-ENRICH = "enrich"  # the next step's job (issue #7)
 BATCH_SIZE = 25
 CALLS_PER_TURN = 4
 NEXT_TURN = timedelta(0)  # back of the queue, at once
@@ -43,14 +43,6 @@ NEXT_TURN = timedelta(0)  # back of the queue, at once
 ENRICHING = "Finding work emails for the people who were there"
 WAITING = "We've reached today's capacity. We'll finish reading the posts automatically after midnight UTC."
 SOMETHING_WRONG = "Something went wrong while reading the posts. We've been notified."
-
-# When several posts show the same person at the run's events, the most telling one is kept.
-_PREFERENCE = [
-    AttendanceLabel.SPEAKING,
-    AttendanceLabel.EXHIBITING,
-    AttendanceLabel.ATTENDING,
-    AttendanceLabel.ATTENDED,
-]
 
 
 class _Stop(Enum):
@@ -199,7 +191,7 @@ class _Seen:
     def rank(self) -> tuple[int, float]:
         """Lower is better: the most telling label, then the most recent post."""
         posted = self.posted_at.timestamp() if self.posted_at is not None else 0.0
-        return _PREFERENCE.index(self.attendance), -posted
+        return MOST_TELLING.index(self.attendance), -posted
 
 
 def _best_post_per_person(session: Session, run_id: uuid.UUID) -> dict[str, _Seen]:

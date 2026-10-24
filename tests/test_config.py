@@ -100,3 +100,30 @@ def test_the_analysis_budget_fits_inside_the_run_budget() -> None:
 def test_a_job_gets_several_heartbeats_before_it_counts_as_stale() -> None:
     with pytest.raises(ValidationError, match="three heartbeats"):
         Settings(worker_heartbeat_seconds=60, worker_stale_after_seconds=120)
+
+
+@pytest.mark.parametrize(
+    ("raw", "statuses"),
+    [
+        ("verified", ("verified",)),
+        ("Verified, likely to engage ,verified", ("verified", "likely to engage")),
+        (["Verified"], ("verified",)),
+    ],
+)
+def test_accepted_email_statuses_are_a_comma_separated_list(raw: object, statuses: tuple[str, ...]) -> None:
+    assert Settings(accepted_email_statuses=raw).accepted_email_statuses == statuses
+
+
+def test_accepted_email_statuses_come_from_the_environment_as_plain_text(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ACCEPTED_EMAIL_STATUSES", "verified,likely to engage")
+    assert Settings().accepted_email_statuses == ("verified", "likely to engage")
+
+
+def test_at_least_one_email_status_is_accepted() -> None:
+    with pytest.raises(ValidationError, match="accepted_email_statuses"):
+        Settings(accepted_email_statuses=" , ")
+
+
+def test_people_are_not_cached_past_the_30_days_personal_data_is_kept() -> None:
+    with pytest.raises(ValidationError, match="person_cache_days"):
+        Settings(person_cache_days=31)

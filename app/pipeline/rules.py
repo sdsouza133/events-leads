@@ -114,19 +114,21 @@ NOT_BUYERS = ("student", "intern", "open to work", "seeking new opportunities", 
 """Headline words that rule anyone out of any B2B ICP, on top of the ICP's own exclusions."""
 
 
-def prescreen(headline: str | None, icp: Icp, *, own_company: str | None = None) -> str | None:
-    """Why this headline can't match the ICP, or None. Only clear signs count: Apollo's title decides the rest."""
+def prescreen(headline: str | None, icp: Icp, *, own_company: str | None = None, what: str = "headline") -> str | None:
+    """Why this headline (or, after enrichment, `what="title"`) can't match the ICP, or None. Only clear signs count:
+    Apollo's title decides the rest."""
     if not headline:
         return None
     for word in [*icp.exclude_title_keywords, *NOT_BUYERS]:
-        if _mentions(headline, word):
-            return f"headline says {word!r}"
-    if own_company and _mentions(headline, own_company):
+        if mentions(headline, word):
+            return f"{what} says {word!r}"
+    if own_company and mentions(headline, own_company):
         return "works at the requester's company"
     return None
 
 
-def _mentions(text: str, phrase: str) -> bool:
+def mentions(text: str, phrase: str) -> bool:
+    """Whether `phrase` appears in `text` as whole words, ignoring case and spacing ("demand gen" in "Demand  Gen")."""
     words = phrase.casefold().split()
     if not words:
         return False

@@ -136,6 +136,14 @@ QUALIFYING_LABELS = frozenset(
 )
 """Labels that mean the author is (or was) really there."""
 
+MOST_TELLING = [
+    AttendanceLabel.SPEAKING,
+    AttendanceLabel.EXHIBITING,
+    AttendanceLabel.ATTENDING,
+    AttendanceLabel.ATTENDED,
+]
+"""The qualifying labels, best lead first: a speaker or exhibitor is easiest to approach, then those still going."""
+
 
 class PostToLabel(_Strict):
     post_id: str
