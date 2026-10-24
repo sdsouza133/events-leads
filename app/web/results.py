@@ -30,7 +30,7 @@ router = APIRouter()
 
 ATTENDANCE = {"speaking": "Speaking", "exhibiting": "Exhibiting", "attending": "Going", "attended": "Went"}
 COLUMNS = ["Name", "Title", "Company", "Email", "LinkedIn", "Event", "Attendance", "Post", "ICP score", "Why they fit"]
-FORMULA_STARTS = ("=", "+", "-", "@", "\t", "\r")
+FORMULA_STARTS = ("=", "+", "-", "@", "\t", "\r", "\n")
 """A cell starting with one of these is run as a formula when the CSV is opened in a spreadsheet (CSV injection)."""
 
 

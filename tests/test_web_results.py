@@ -184,7 +184,7 @@ def test_cells_that_a_spreadsheet_would_run_as_formulas_are_kept_as_text(client:
     assert row[0] == '\'=HYPERLINK("https://evil.example","Click")'
 
 
-@pytest.mark.parametrize("value", ["=1+1", "+1", "-1", "@SUM(A1)", "\tx", "\rx"])
+@pytest.mark.parametrize("value", ["=1+1", "+1", "-1", "@SUM(A1)", "\tx", "\rx", "\nx"])
 def test_every_formula_start_is_neutralized(value: str) -> None:
     assert results._cell(value) == "'" + value
     assert results._cell("plain " + value) == "plain " + value
