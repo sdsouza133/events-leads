@@ -10,6 +10,7 @@
   var url = el.getAttribute("data-status-url");
   var phase = el.getAttribute("data-phase");
   var note = document.getElementById("run-note");
+  var estimate = document.getElementById("run-estimate");
   var live = document.getElementById("run-step");
   var states = { done: "Done", active: "In progress", pending: "Up next" };
   var active = el.querySelector(".step.is-active");
@@ -44,6 +45,9 @@
     tick(body.progress.step);
     if (note && note.textContent !== body.progress.note) {
       note.textContent = body.progress.note;
+    }
+    if (estimate) {
+      estimate.hidden = Boolean(body.progress.note); // waiting for capacity: no promise of minutes
     }
     if (body.found) {
       count("found-posts", body.found.posts);

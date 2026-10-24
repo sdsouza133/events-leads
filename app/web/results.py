@@ -97,7 +97,8 @@ def show(
     now = common.now()
     found = [] if expired(run, now) else rows(session, run)
     events = list(dict.fromkeys(row.event for row in found))
-    showing = only.capitalize() if only.capitalize() in TONES else ""
+    wanted = only.capitalize()
+    showing = wanted if wanted in TONES and any(row.attendance == wanted for row in found) else ""  # else: all
     context = {
         "account": account,
         "run": run,

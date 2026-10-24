@@ -27,7 +27,7 @@
     <h1>{{ label }}</h1>
   </div>
   <ul class="counters">
-    <li class="card counter"><span class="counter-value" id="found-posts">{{ "{:,}".format(found.posts) }}</span><span class="counter-label">posts read</span></li>
+    <li class="card counter"><span class="counter-value" id="found-posts">{{ "{:,}".format(found.posts) }}</span><span class="counter-label">posts found</span></li>
     <li class="card counter"><span class="counter-value" id="found-people">{{ "{:,}".format(found.people) }}</span><span class="counter-label">people at your events</span></li>
     <li class="card counter"><span class="counter-value is-accent" id="found-emails">{{ "{:,}".format(found.emails) }}</span><span class="counter-label">verified emails</span></li>
   </ul>
@@ -35,7 +35,8 @@
     <progress id="found-percent" max="100" value="{{ found.percent }}" aria-label="How far along the search is">{{ found.percent }}%</progress>
     {{ tracker(progress) }}
   </div>
-  <p class="search-note">About 10 minutes. You can close this tab: we'll email you when your list is ready.</p>
+  <p class="search-note"><span id="run-estimate"{% if progress.note %} hidden{% endif %}>About 10 minutes. </span>You can
+  close this tab: we'll email you when your list is ready.</p>
 </div>
 {% else %}
 <div class="card card-raised panel panel-steps" id="run" data-status-url="/runs/{{ run.id }}/status"
@@ -44,7 +45,8 @@
   <h1>{{ label }}</h1>
   {% if progress %}
   {{ tracker(progress) }}
-  <p class="soft-note">Takes about 2 minutes. This page moves on by itself.</p>
+  <p class="soft-note"><span id="run-estimate"{% if progress.note %} hidden{% endif %}>Takes about 2 minutes. </span>This
+  page moves on by itself.</p>
   {% else %}
   <p>{{ run.status_detail or "" }}</p>
   {% endif %}
