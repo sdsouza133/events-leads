@@ -7,8 +7,9 @@ import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
 from functools import lru_cache
+from typing import Any, cast
 
-from sqlalchemy import Engine, create_engine, text
+from sqlalchemy import CursorResult, Engine, Result, create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -60,3 +61,9 @@ def database_is_reachable() -> bool:
         log.warning("database not reachable", exc_info=True)
         return False
     return True
+
+
+def rowcount(result: Result[Any]) -> int:
+    """Rows touched by an UPDATE or DELETE. SQLAlchemy types `Session.execute` as a plain Result, but for those
+    statements it is a CursorResult, which carries the count."""
+    return int(cast(CursorResult[Any], result).rowcount or 0)

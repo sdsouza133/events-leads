@@ -7,8 +7,13 @@ running.
 
 import os
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
+from alembic import command
+from alembic.config import Config
+from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 # Set before importing the app: its settings are read from the environment.
 os.environ.setdefault("ENV", "test")
@@ -16,6 +21,9 @@ os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://el:el@127.0.0.1:5432
 
 from app.config import Settings, get_settings
 from app.db import database_is_reachable, get_engine, get_sessionmaker
+from app.models import Base
+
+ROOT = Path(__file__).resolve().parent.parent
 
 # Tests never read a developer's .env: what they see comes from the variables set here and in each test.
 Settings.model_config["env_file"] = None
@@ -55,3 +63,34 @@ def _dispose_engine() -> Iterator[None]:
     yield
     get_engine().dispose()
     get_sessionmaker.cache_clear()
+
+
+def alembic_config() -> Config:
+    return Config(str(ROOT / "alembic.ini"))
+
+
+@pytest.fixture(scope="session")
+def migrated() -> None:
+    """The schema at the latest migration, built once per test session."""
+    require_a_test_database(get_engine().url.database)
+    command.upgrade(alembic_config(), "head")
+
+
+def truncate_all_tables() -> None:
+    engine = get_engine()
+    require_a_test_database(engine.url.database)
+    tables = ", ".join(table.name for table in Base.metadata.sorted_tables)
+    with engine.begin() as conn:
+        conn.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
+
+
+@pytest.fixture
+def db(migrated: None) -> Iterator[Session]:
+    """A session on the migrated test database; every table is emptied afterwards."""
+    session = get_sessionmaker()()
+    try:
+        yield session
+    finally:
+        session.rollback()
+        session.close()
+        truncate_all_tables()

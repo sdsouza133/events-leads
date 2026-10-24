@@ -1,0 +1,6 @@
+name: events-leads CodeQL config
+
+paths-ignore:
+  # Alembic revision files: generated DDL. Their module-level `revision`, `down_revision`, `branch_labels` and
+  # `depends_on` are read by Alembic, which CodeQL can't see, so it reports them as unused.
+  - migrations/versions
