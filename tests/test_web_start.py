@@ -487,10 +487,21 @@ def test_the_requester_sees_their_run_and_its_progress(client: TestClient, db: S
     run = signed_in_run(client, db, settings)
     response = client.get(f"/runs/{run.id}")
     assert response.status_code == 200
-    assert "Reading your website" in response.text
+    assert "Getting your plan ready" in response.text
+    assert "Reading acmewidgets.com" in response.text
     assert "/static/run.js" in response.text  # it checks back while the run works
     status = client.get(f"/runs/{run.id}/status")
-    assert status.json() == {"status": "analyzing", "label": "Reading your website", "detail": start.READING_SITE}
+    assert status.json() == {
+        "status": "analyzing",
+        "label": "Getting your plan ready",
+        "detail": start.READING_SITE,
+        "progress": {
+            "phase": "plan",
+            "steps": ["Reading acmewidgets.com", "Finding events your buyers go to"],
+            "step": 0,
+            "note": "",
+        },
+    }
 
 
 def test_nobody_else_can_see_a_run(client: TestClient, db: Session, settings: Settings) -> None:
