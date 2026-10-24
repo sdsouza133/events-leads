@@ -6,7 +6,10 @@ readme = "README.md"
 requires-python = ">=3.12,<3.14"
 dependencies = [
     "alembic>=1.13",
+    "anthropic>=2.3,<3",
+    "beautifulsoup4>=4.12",
     "fastapi>=0.115",
+    "httpx2>=1.0",
     "psycopg[binary]>=3.2",
     "pydantic>=2.8",
     "pydantic-settings>=2.4",
@@ -16,7 +19,6 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "httpx2>=1.0",
     "mypy>=1.11",
     "pre-commit>=3.8",
     "pytest>=8.3",
@@ -55,7 +57,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "S105", "S106", "PLR2004", "ARG001"]
+"tests/**" = ["S101", "S105", "S106", "S311", "PLR2004", "ARG001"]
 "migrations/**" = ["N999"]
 
 [tool.mypy]

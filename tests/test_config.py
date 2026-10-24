@@ -27,14 +27,14 @@ PROD_DB = "postgresql://u:p@db.example.com:5432/postgres"
 
 
 def test_production_accepts_a_long_random_secret() -> None:
-    settings = Settings(env="production", secret_key="k" * 48, database_url=PROD_DB)
+    settings = Settings(env="production", secret_key="k" * 48, database_url=PROD_DB, providers="real")
     assert settings.env == "production"
 
 
 def test_production_refuses_to_fall_back_to_the_dev_database(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("DATABASE_URL", raising=False)
     with pytest.raises(ValidationError, match="DATABASE_URL must be set"):
-        Settings(env="production", secret_key="k" * 48)
+        Settings(env="production", secret_key="k" * 48, providers="real")
 
 
 @pytest.mark.parametrize(

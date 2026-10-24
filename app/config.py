@@ -7,6 +7,7 @@ from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 Environment = Literal["dev", "test", "staging", "production"]
+Effort = Literal["low", "medium", "high", "xhigh", "max"]
 
 MIN_SECRET_KEY_LENGTH = 32
 POSTGRES_SCHEMES = ("postgresql+psycopg://", "postgresql://", "postgres://")
@@ -28,6 +29,25 @@ class Settings(BaseSettings):
 
     # Signs session and CSRF tokens. Must be set (and long) outside dev and test.
     secret_key: SecretStr = SecretStr("dev-only-secret-key-change-me-0123456789")
+
+    # External services. "fake" runs everything offline on synthetic data (tests, local work, previews).
+    providers: Literal["fake", "real"] = "fake"
+    anthropic_api_key: SecretStr | None = None
+    analyze_model: str = "claude-opus-5-5"
+    classify_model: str = "claude-opus-5-5"  # claude-haiku-5-5 costs about 1/40 as much; the operator's call
+    analyze_effort: Effort = "medium"
+    classify_effort: Effort = "low"
+    # Web searches for one event research, plus at most one Claude asked for just as a long turn paused.
+    max_web_searches: int = Field(default=6, ge=1, le=20)
+    llm_fallbacks: bool = True
+    apify_token: SecretStr | None = None
+    apify_actor: str = "harvestapi~linkedin-post-search"
+    apify_posted_limit: Literal["week", "month", "3months", "6months"] = "3months"
+    apollo_api_key: SecretStr | None = None
+    reoon_enabled: bool = False
+    reoon_api_key: SecretStr | None = None
+    resend_api_key: SecretStr | None = None
+    mail_from: str = "Event Leads <leads@theb2bdynamics.com>"
 
     @model_validator(mode="before")
     @classmethod
@@ -55,6 +75,8 @@ class Settings(BaseSettings):
             raise ValueError("DATABASE_URL must be a PostgreSQL URL")
         if self.env in ("staging", "production") and self.sqlalchemy_url == DEV_DATABASE_URL:
             raise ValueError("DATABASE_URL must be set outside dev and test")
+        if self.env == "production" and self.providers != "real":
+            raise ValueError("production must use PROVIDERS=real")
         return self
 
     @property
