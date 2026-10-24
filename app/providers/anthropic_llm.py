@@ -370,12 +370,17 @@ def _collect(content: Sequence[Any], notes: list[str], results: dict[str, str | 
             # On a failed search `content` is a single error object, not a list; there's nothing to collect then.
             for result in block.content:
                 url = getattr(result, "url", None)
-                if url:
-                    results.setdefault(_canonical(url), getattr(result, "title", None))
+                key = _canonical(url) if url else None
+                if key:
+                    results.setdefault(key, getattr(result, "title", None))
 
 
-def _canonical(url: str) -> str:
-    parts = urlsplit(url.strip())
+def _canonical(url: str) -> str | None:
+    """A URL in one form for comparing, or None when it can't be read (e.g. an unclosed IPv6 bracket)."""
+    try:
+        parts = urlsplit(url.strip())
+    except ValueError:
+        return None
     return f"{parts.scheme.lower()}://{(parts.netloc or '').lower()}{parts.path.rstrip('/') or ''}" + (
         f"?{parts.query}" if parts.query else ""
     )
@@ -386,7 +391,8 @@ def _real_events(wire: list[_WireEvent], result_urls: set[str], today: date) -> 
     kept: list[EventSuggestion] = []
     names: set[str] = set()
     for item in wire:
-        if _canonical(item.source_url) not in result_urls:
+        source = _canonical(item.source_url)
+        if source is None or source not in result_urls:
             continue  # not traceable to a search result: possibly from memory
         ends, starts = item.end_date or item.start_date, item.start_date or item.end_date
         if (ends and ends < earliest) or (starts and starts > latest):

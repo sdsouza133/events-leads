@@ -277,6 +277,23 @@ def test_events_must_come_from_the_search_results() -> None:
     assert answer.cost_usd == Decimal("0.0380")
 
 
+def test_a_url_that_cannot_be_read_is_skipped_not_raised() -> None:
+    broken = {"type": "web_search_result", "url": "http://[broken/", "title": "?", "encrypted_content": "e3"}
+    turn = [SEARCH_TURN[0], {**SEARCH_TURN[1], "content": [*SEARCH_TURN[1]["content"], broken]}, SEARCH_TURN[2]]
+
+    def responder(body: dict[str, Any], i: int) -> dict[str, Any]:
+        if i == 0:
+            return message(turn, server_tool_use={"web_search_requests": 1})
+        events = [
+            event("Pipeline Week", "https://events.example/pipeline-week", "2026-12-02"),
+            event("Broken Expo", "http://[broken/", "2026-11-20"),  # e.g. written into a page Claude read
+        ]
+        return message([text_json({"events": events})])
+
+    llm, _ = make_llm(responder)
+    assert [e.name for e in llm.find_events(analysis(), today=TODAY).value] == ["Pipeline Week"]
+
+
 def test_a_paused_search_turn_is_continued() -> None:
     def responder(body: dict[str, Any], i: int) -> dict[str, Any]:
         if i == 0:
