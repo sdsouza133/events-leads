@@ -41,11 +41,3 @@ def configure_logging(level: str) -> None:
     root.setLevel(level)
     for name in QUIET_LOGGERS:
         logging.getLogger(name).setLevel(logging.WARNING)
-
-
-def mask_email(email: str) -> str:
-    """Keep logs useful without storing addresses: 'jane.doe@acme.com' -> 'j***@acme.com'."""
-    local, sep, domain = email.partition("@")
-    if not sep:
-        return "***"
-    return f"{local[:1]}***@{domain}"

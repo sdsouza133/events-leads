@@ -2,9 +2,7 @@ import json
 import logging
 import sys
 
-import pytest
-
-from app.logging_config import JsonFormatter, configure_logging, mask_email
+from app.logging_config import JsonFormatter, configure_logging
 
 
 def _record(msg: str, **extra: object) -> logging.LogRecord:
@@ -32,14 +30,6 @@ def test_exceptions_are_included() -> None:
         record.exc_info = sys.exc_info()
     data = json.loads(JsonFormatter().format(record))
     assert "ValueError: boom" in data["exc"]
-
-
-@pytest.mark.parametrize(
-    ("email", "masked"),
-    [("jane.doe@acme.com", "j***@acme.com"), ("x@y.io", "x***@y.io"), ("not-an-email", "***")],
-)
-def test_mask_email(email: str, masked: str) -> None:
-    assert mask_email(email) == masked
 
 
 def test_configuring_twice_adds_one_handler_and_keeps_others() -> None:

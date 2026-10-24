@@ -7,7 +7,6 @@ own can't use up a one-time link.
 """
 
 import logging
-import re
 import uuid
 from datetime import datetime, timedelta
 from typing import Annotated
@@ -20,7 +19,6 @@ from sqlalchemy.orm import Session
 
 from app import auth, domains, queue, ratelimit
 from app.config import Settings
-from app.logging_config import mask_email
 from app.models import Account, Run, RunStatus
 from app.pipeline import runs
 from app.pipeline.analyze import ANALYZE_SITE
@@ -31,7 +29,6 @@ from app.web.common import AppSettings, DbSession, SignedIn, page
 log = logging.getLogger(__name__)
 router = APIRouter()
 
-EMAIL = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
 MAX_EMAIL_LENGTH = 320
 HOUR = timedelta(hours=1)
 
@@ -70,7 +67,7 @@ def start(
         return again(errors, 400)
     if not _within_limits(session, settings, request, address):
         session.commit()  # the attempt still counts
-        log.warning("sign-up attempts over the limit", extra={"email": mask_email(address)})
+        log.warning("sign-up attempts over the limit")  # the rate_limits table shows which IP or address hash
         return again({"form": "Too many attempts. Please try again in an hour."}, 429)
     assert site is not None  # noqa: S101 (_check found no error, so the website parsed)
     url, domain = site
@@ -88,7 +85,7 @@ def start(
     payload = {"account_id": str(requester.id), "run_id": str(run.id)}
     queue.enqueue(session, SEND_SIGN_IN, payload, run_after=common.now(), dedupe_key=f"{SEND_SIGN_IN}:{run.id}")
     session.commit()
-    log.info("sign-in link requested", extra={"email": mask_email(address), "run_id": str(run.id)})
+    log.info("sign-in link requested", extra={"account_id": str(requester.id), "run_id": str(run.id)})
     return page(request, "check_email.html", {"account": account, "email": address}, settings)
 
 
@@ -161,7 +158,7 @@ def _check(site: tuple[str, str] | None, address: str) -> dict[str, str]:
     errors: dict[str, str] = {}
     if site is None:
         errors["website"] = "Enter your company's website, like acme.com."
-    mailbox = domains.email_domain(address) if len(address) <= MAX_EMAIL_LENGTH and EMAIL.fullmatch(address) else None
+    mailbox = domains.email_domain(address) if _plausible_address(address) else None
     if mailbox is None:
         errors["email"] = "Enter your work email address."
     elif domains.is_free_mail(mailbox):
@@ -169,6 +166,11 @@ def _check(site: tuple[str, str] | None, address: str) -> dict[str, str]:
     elif site is not None and mailbox != site[1]:
         errors["email"] = f"Use an email address at {site[1]}, your website's domain."
     return errors
+
+
+def _plausible_address(address: str) -> bool:
+    """One @, and nothing an address can't hold: no spaces, line breaks or other control characters."""
+    return len(address) <= MAX_EMAIL_LENGTH and address.count("@") == 1 and address.isprintable() and " " not in address
 
 
 def _within_limits(session: Session, settings: Settings, request: Request, address: str) -> bool:

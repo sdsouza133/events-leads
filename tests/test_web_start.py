@@ -111,6 +111,9 @@ def test_a_form_posted_without_the_page_s_token_is_refused(client: TestClient, d
     [
         ("not a website", EMAIL, "Enter your company&#39;s website"),
         ("acmewidgets.com", "jo", "Enter your work email address."),
+        ("acmewidgets.com", "jo@sam@acmewidgets.com", "Enter your work email address."),
+        ("acmewidgets.com", "jo smith@acmewidgets.com", "Enter your work email address."),
+        ("acmewidgets.com", "jo\x1b@acmewidgets.com", "Enter your work email address."),
         ("gmail.com", "jo@gmail.com", "Use your work email."),
         ("acmewidgets.com", "jo@otherwidgets.com", "Use an email address at acmewidgets.com"),
     ],
@@ -392,8 +395,11 @@ def test_no_link_session_or_address_reaches_the_logs(
     logged = "\n".join(f"{record.getMessage()} {record.__dict__}" for record in caplog.records)
     assert token not in logged
     assert cookie not in logged
-    assert EMAIL not in logged
-    assert "j***@acmewidgets.com" in logged  # the requester's address appears only masked, before sign-in
+    assert "@acmewidgets.com" not in logged  # nor the requester's address, even masked: lines name the account
+    [requested] = [record for record in caplog.records if record.getMessage() == "sign-in link requested"]
+    account = db.scalar(select(Account))
+    assert account is not None
+    assert requested.__dict__["account_id"] == str(account.id)
 
 
 def test_a_new_run_gets_the_run_budget(client: TestClient, db: Session, settings: Settings) -> None:
