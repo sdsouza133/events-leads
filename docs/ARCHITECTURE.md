@@ -145,9 +145,13 @@ their data is deleted: the round fails on the foreign key, nothing is deleted, a
 
 `/admin` (`app/web/console.py`), for the addresses in `ADMIN_EMAILS` only; to anyone else signed in it doesn't exist.
 It lists the latest runs with their status, spend and internal error, today's spend against the daily cap, and the
-queue with the latest failed jobs. Canceling a run sets it to `canceled`, which every step checks before starting
-anything. Each grant (`run_grants`) lets a company start one more run on top of `FREE_RUNS_PER_DOMAIN`. Operators
-sign in at `/sign-in-again`, and their link opens the console.
+queue with the latest failed jobs. "Run any company" starts a run for any website at once, without a prospect's
+email: the run is the operator's own (they review its plan and get the list), has the same caps as any run, and is
+marked `operator_run`, so it doesn't use the company's free run. The "New runs" switch closes the start form (the
+`new_runs_paused` row in `flags`) without a deploy; runs already asked for carry on, and spending stops only with
+`PAUSE_NEW_RUNS`. Canceling a run sets it to `canceled`, which every step checks before starting anything. Each
+grant (`run_grants`) lets a company start one more run on top of `FREE_RUNS_PER_DOMAIN`. Operators sign in from the
+Sign in link (`/sign-in-again`), and their link opens the console.
 
 ## Data model (main tables)
 

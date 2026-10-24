@@ -1,12 +1,15 @@
 {% extends "base.html" %}
+{% macro error(key) -%}
+{%- if errors[key] %}<p class="error" id="{{ key }}-error">{{ errors[key] }}</p>{% endif -%}
+{%- endmacro %}
 {% block title %}Console{% endblock %}
-{% block body_attrs %} class="wide"{% endblock %}
+{% block brand_tag %}<span class="tag">Console</span>{% endblock %}
+{% block main_class %}page-console{% endblock %}
 {% block main %}
-<h1>Console</h1>
-<p class="small">Times are in UTC.</p>
+<h1 class="visually-hidden">Console</h1>
 {% if paused %}
-<p class="notice" role="status">New paid work is paused: <code>PAUSE_NEW_RUNS</code> is set. The start form takes no
-new requests, and jobs about to spend wait until it's unset.</p>
+<p class="notice notice-warm" role="status">New paid work is paused: <code>PAUSE_NEW_RUNS</code> is set. The start
+form takes no new requests, and jobs about to spend wait until it's unset.</p>
 {% endif %}
 {% if notice %}<p class="notice" role="status">{{ notice }}</p>{% endif %}
 
@@ -21,124 +24,173 @@ new requests, and jobs about to spend wait until it's unset.</p>
 </div>
 {% endif %}
 
-<h2 id="today">Today, {{ today.day }}</h2>
-<p>Spent {{ today.spent }} of the {{ today.cap }} daily cap, with {{ today.reserved }} held for calls under way.
-{{ today.left }} left.</p>
+<section class="card console-card" aria-labelledby="run-title">
+  <h2 class="console-hero" id="run-title">Run any company</h2>
+  <p class="lead">No prospect email needed. It runs as you, skips the free-run limit, and has the same {{ budget }}
+  cap.</p>
+  <form method="post" action="/admin/runs" class="run-form" novalidate>
+    <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
+    <div class="field">
+      <label for="website">Company website</label>
+      {{ error("website") }}
+      <input type="text" id="website" name="website" inputmode="url" spellcheck="false" placeholder="prospect.com"
+             value="{{ form.website or '' }}"{% if errors.website %} aria-invalid="true" aria-describedby="website-error"{% endif %}>
+    </div>
+    <button type="submit" class="btn btn-lg">Run it {{ icon("arrow-right") }}</button>
+  </form>
+</section>
 
-<h2 id="queue">Queue</h2>
-<p>{{ queue.due }} {{ "job" if queue.due == 1 else "jobs" }} due now, {{ queue.later }} waiting for later,
-{{ queue.running }} running, {{ queue.failed }} failed.</p>
-{% if manual_ai %}
-<p>Manual AI mode is on: there's no Anthropic key, so operators answer Claude's questions.
-{{ questions }} {{ "question is" if questions == 1 else "questions are" }} waiting for an answer
-{%- if operator_api %} at <code>/admin/api/tasks</code>.{% else %}, but <code>OPERATOR_API_TOKEN</code> isn't set on
-this service, so the operator API is off: set it to answer them.{% endif %}</p>
-{% endif %}
-{% if failed_jobs %}
-<div class="table-wrap" role="region" aria-labelledby="failed-caption" tabindex="0">
-  <table>
-    <caption id="failed-caption">Failed jobs, latest first</caption>
-    <thead>
-      <tr>
-        <th scope="col">When</th>
-        <th scope="col">Job</th>
-        <th scope="col">Run</th>
-        <th scope="col">Tries</th>
-        <th scope="col">Error</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for job in failed_jobs %}
-      <tr>
-        <td class="nowrap">{{ job.when }}</td>
-        <td>{{ job.kind }}</td>
-        <td>{% if job.run_id %}<a href="/runs/{{ job.run_id }}">Open<span class="visually-hidden"> the run for this job</span></a>{% endif %}</td>
-        <td>{{ job.attempts }}</td>
-        <td>{{ job.error }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+<div class="stats" id="today">
+  <section class="card stat" aria-labelledby="spent-title">
+    <h2 class="stat-label" id="spent-title">Spent today</h2>
+    <p class="stat-value">{{ today.spent }} <span class="stat-of">of {{ today.cap }}</span></p>
+    <meter min="0" max="100" value="{{ today.percent }}" aria-label="Share of today's cap spent or held">{{ today.percent }}%</meter>
+    <p class="small">Spent {{ today.spent }} of the {{ today.cap }} daily cap, with {{ today.reserved }} held for calls
+    under way. {{ today.left }} left.</p>
+  </section>
+  <section class="card stat" aria-labelledby="runs-today-title">
+    <h2 class="stat-label" id="runs-today-title">Runs today</h2>
+    <p class="stat-value">{{ today.runs }}</p>
+    <p class="small">Since midnight UTC ({{ today.day }}).</p>
+  </section>
+  <section class="card stat stat-switch" aria-labelledby="new-runs-title">
+    <div>
+      <h2 class="stat-label" id="new-runs-title">New runs</h2>
+      <p class="stat-state {{ 'is-open' if taking else 'is-paused' }}">{{ "Open" if taking else "Paused" }}</p>
+    </div>
+    <form method="post" action="/admin/new-runs">
+      <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
+      <input type="hidden" name="take" value="{{ 'no' if taking else 'yes' }}">
+      <button type="submit" class="switch" role="switch" aria-checked="{{ 'true' if taking else 'false' }}" aria-labelledby="new-runs-title"><span class="knob"></span></button>
+    </form>
+  </section>
 </div>
-{% endif %}
 
-<h2 id="runs">Runs</h2>
-{% if runs %}
-<div class="table-wrap" role="region" aria-labelledby="runs-caption" tabindex="0">
-  <table>
-    <caption id="runs-caption">The latest {{ runs | length }} runs, newest first</caption>
-    <thead>
-      <tr>
-        <th scope="col">Started</th>
-        <th scope="col">Company</th>
-        <th scope="col">Status</th>
-        <th scope="col">Spent</th>
-        <th scope="col">Leads</th>
-        <th scope="col"><span class="visually-hidden">Actions</span></th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for run in runs %}
-      <tr>
-        <td class="nowrap">{{ run.created }}</td>
-        <td><a href="/runs/{{ run.id }}">{{ run.domain }}</a><br><span class="small">{{ run.requester }}</span></td>
-        <td>{{ run.status }}{% if run.detail %}<br><span class="small">{{ run.detail }}</span>{% endif %}
-          {%- if run.error %}<br><span class="small">Error: {{ run.error }}</span>{% endif %}</td>
-        <td>{{ run.spent }}{% if run.credits %}<br><span class="small">{{ run.credits }} Apollo credits</span>{% endif %}</td>
-        <td>{{ run.leads }}</td>
-        <td>{% if run.open %}<a href="/admin/runs/{{ run.id }}/cancel">Cancel<span class="visually-hidden"> the run for {{ run.domain }}</span></a>{% endif %}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
-{% else %}
-<p>No runs yet.</p>
-{% endif %}
-
-<h2 id="grants">Grant a company another run</h2>
-<p>Each company gets {{ free_runs }} free {{ "run" if free_runs == 1 else "runs" }}. Each grant lets it start one
-more.</p>
-<form method="post" action="/admin/grants" novalidate>
-  <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
-  <div class="field">
-    <label for="company">The company's website or domain</label>
-    {% if errors.company %}<p class="error" id="company-error">{{ errors.company }}</p>{% endif %}
-    <input type="text" id="company" name="company" spellcheck="false" value="{{ form.company or '' }}"
-           {% if errors.company %}aria-invalid="true" aria-describedby="company-error"{% endif %}>
+<section class="card console-card" id="runs" aria-labelledby="runs-title">
+  <h2 id="runs-title">Runs</h2>
+  {% if runs %}
+  <div class="table-wrap" role="region" aria-labelledby="runs-caption" tabindex="0">
+    <table>
+      <caption id="runs-caption" class="visually-hidden">The latest {{ runs | length }} runs, newest first</caption>
+      <thead>
+        <tr>
+          <th scope="col">Company</th>
+          <th scope="col">Asked by</th>
+          <th scope="col">Status</th>
+          <th scope="col">Leads</th>
+          <th scope="col">Spent</th>
+          <th scope="col">Started <span class="visually-hidden">(UTC)</span></th>
+          <th scope="col"><span class="visually-hidden">Actions</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for run in runs %}
+        <tr>
+          <td><a class="strong-link" href="/runs/{{ run.id }}">{{ run.domain }}</a></td>
+          <td>{{ run.requester }}{% if run.operator_run %} <span class="badge tone-neutral">Console</span>{% endif %}</td>
+          <td><span class="badge tone-{{ run.tone }}">{{ run.status }}</span>
+            {%- if run.detail %}<br><span class="small">{{ run.detail }}</span>{% endif %}
+            {%- if run.error %}<br><span class="small">Error: {{ run.error }}</span>{% endif %}</td>
+          <td>{{ run.leads }}</td>
+          <td class="nowrap">{{ run.spent }}{% if run.credits %}<br><span class="small">{{ run.credits }} Apollo credits</span>{% endif %}</td>
+          <td class="nowrap">{{ run.created }}</td>
+          <td class="nowrap">{% if run.open %}<a href="/admin/runs/{{ run.id }}/cancel">Cancel<span class="visually-hidden"> the run for {{ run.domain }}</span></a>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
-  <div class="field">
-    <label for="note">Note (optional)</label>
-    <p class="hint" id="note-hint">Why, for example: asked for a second list in Q4.</p>
-    {% if errors.note %}<p class="error" id="note-error">{{ errors.note }}</p>{% endif %}
-    <input type="text" id="note" name="note" value="{{ form.note or '' }}"
-           aria-describedby="note-hint{% if errors.note %} note-error{% endif %}"{% if errors.note %} aria-invalid="true"{% endif %}>
+  {% else %}
+  <p>No runs yet.</p>
+  {% endif %}
+</section>
+
+<section class="card console-card" id="queue" aria-labelledby="queue-title">
+  <h2 id="queue-title">Queue</h2>
+  <p>{{ queue.due }} {{ "job" if queue.due == 1 else "jobs" }} due now, {{ queue.later }} waiting for later,
+  {{ queue.running }} running, {{ queue.failed }} failed.</p>
+  {% if manual_ai %}
+  <p>Manual AI mode is on: there's no Anthropic key, so operators answer Claude's questions.
+  {{ questions }} {{ "question is" if questions == 1 else "questions are" }} waiting for an answer
+  {%- if operator_api %} at <code>/admin/api/tasks</code>.{% else %}, but <code>OPERATOR_API_TOKEN</code> isn't set on
+  this service, so the operator API is off: set it to answer them.{% endif %}</p>
+  {% endif %}
+  {% if failed_jobs %}
+  <div class="table-wrap" role="region" aria-labelledby="failed-caption" tabindex="0">
+    <table>
+      <caption id="failed-caption">Failed jobs, latest first</caption>
+      <thead>
+        <tr>
+          <th scope="col">When <span class="visually-hidden">(UTC)</span></th>
+          <th scope="col">Job</th>
+          <th scope="col">Run</th>
+          <th scope="col">Tries</th>
+          <th scope="col">Error</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for job in failed_jobs %}
+        <tr>
+          <td class="nowrap">{{ job.when }}</td>
+          <td>{{ job.kind }}</td>
+          <td>{% if job.run_id %}<a href="/runs/{{ job.run_id }}">Open<span class="visually-hidden"> the run for this job</span></a>{% endif %}</td>
+          <td>{{ job.attempts }}</td>
+          <td>{{ job.error }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
-  <button type="submit">Grant another run</button>
-</form>
-{% if grants %}
-<div class="table-wrap" role="region" aria-labelledby="grants-caption" tabindex="0">
-  <table>
-    <caption id="grants-caption">Recent grants</caption>
-    <thead>
-      <tr>
-        <th scope="col">When</th>
-        <th scope="col">Company</th>
-        <th scope="col">By</th>
-        <th scope="col">Note</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for grant in grants %}
-      <tr>
-        <td class="nowrap">{{ grant.when }}</td>
-        <td>{{ grant.domain }}</td>
-        <td>{{ grant.by }}</td>
-        <td>{{ grant.note }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
-{% endif %}
+  {% endif %}
+</section>
+
+<section class="card console-card" id="grants" aria-labelledby="grants-title">
+  <h2 id="grants-title">Grant a company another run</h2>
+  <p>Each company gets {{ free_runs }} free {{ "run" if free_runs == 1 else "runs" }}. Each grant lets it start one
+  more.</p>
+  <form method="post" action="/admin/grants" novalidate>
+    <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
+    <div class="field-row">
+      <div class="field">
+        <label for="company">The company's website or domain</label>
+        {{ error("company") }}
+        <input type="text" id="company" name="company" spellcheck="false" value="{{ form.company or '' }}"
+               {% if errors.company %}aria-invalid="true" aria-describedby="company-error"{% endif %}>
+      </div>
+      <div class="field">
+        <label for="note">Note (optional)</label>
+        <p class="hint" id="note-hint">Why, for example: asked for a second list in Q4.</p>
+        {{ error("note") }}
+        <input type="text" id="note" name="note" value="{{ form.note or '' }}"
+               aria-describedby="note-hint{% if errors.note %} note-error{% endif %}"{% if errors.note %} aria-invalid="true"{% endif %}>
+      </div>
+    </div>
+    <button type="submit" class="btn btn-quiet">Grant another run</button>
+  </form>
+  {% if grants %}
+  <div class="table-wrap" role="region" aria-labelledby="grants-caption" tabindex="0">
+    <table>
+      <caption id="grants-caption">Recent grants</caption>
+      <thead>
+        <tr>
+          <th scope="col">When <span class="visually-hidden">(UTC)</span></th>
+          <th scope="col">Company</th>
+          <th scope="col">By</th>
+          <th scope="col">Note</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for grant in grants %}
+        <tr>
+          <td class="nowrap">{{ grant.when }}</td>
+          <td>{{ grant.domain }}</td>
+          <td>{{ grant.by }}</td>
+          <td>{{ grant.note }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</section>
 {% endblock %}

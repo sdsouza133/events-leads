@@ -1,8 +1,12 @@
 """The operator console (issue #9, FR-9): every run with its status and cost, the day's spend against the cap, how
-the job queue is doing, and the operator's two actions: canceling a run, and granting a company another run.
+the job queue is doing, and the operator's actions: running any company, pausing new runs, canceling a run, and
+granting a company another run.
+
+Running a company needs no prospect's email: the run is the operator's own, started at once, with the same caps as
+any run. It doesn't use the company's free run, so the company can still ask for its own list.
 
 Only the addresses in ADMIN_EMAILS see it. To anyone else signed in it doesn't exist (404), like a run that isn't
-theirs. Operators sign in like requesters: a link from /sign-in-again brings them here.
+theirs. Operators sign in like requesters: the Sign in link (/sign-in-again) brings them here.
 """
 
 import logging
@@ -17,11 +21,12 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app import budget, domains
+from app import budget, domains, flags, queue
 from app.config import Settings
 from app.models import Account, AiTask, BudgetDay, Job, JobStatus, Run, RunGrant, RunStatus
 from app.pipeline import runs
-from app.web import common
+from app.pipeline.analyze import ANALYZE_SITE
+from app.web import common, start
 from app.web.common import AppSettings, DbSession, SignedIn, page
 
 log = logging.getLogger(__name__)
@@ -37,6 +42,21 @@ NOTICES = {
     "canceled": "The run is canceled. Nothing new starts for it.",
     "finished": "That run had already finished, so it wasn't canceled.",
     "granted": "Granted: the company can start another run.",
+    "paused": "New runs are paused: the start form takes no new requests. Runs already asked for carry on.",
+    "opened": "The start form takes new runs again.",
+}
+STATUSES = {  # how the console names each status, and the color of its chip
+    RunStatus.AWAITING_SIGN_IN: ("Awaiting sign-in", "neutral"),
+    RunStatus.ANALYZING: ("Making the plan", "accent"),
+    RunStatus.AWAITING_APPROVAL: ("Plan ready", "accent"),
+    RunStatus.COLLECTING: ("Searching", "warm"),
+    RunStatus.WAITING_FOR_BUDGET: ("Waiting for budget", "warm"),
+    RunStatus.QUALIFYING: ("Reading posts", "warm"),
+    RunStatus.ENRICHING: ("Finding emails", "warm"),
+    RunStatus.READY: ("Ready", "ok"),
+    RunStatus.FAILED: ("Failed", "error"),
+    RunStatus.CANCELED: ("Canceled", "neutral"),
+    RunStatus.EXPIRED: ("Expired", "neutral"),
 }
 EXPIRED_FORM = "This page had expired. Please try again."
 
@@ -48,6 +68,8 @@ class Today:
     reserved: str
     cap: str
     left: str
+    percent: int  # of the cap, spent or held
+    runs: int  # started today
 
 
 @dataclass(frozen=True)
@@ -74,12 +96,14 @@ class RunRow:
     domain: str
     requester: str
     status: str
+    tone: str
     detail: str
     error: str
     spent: str
     credits: int
     leads: int
     open: bool
+    operator_run: bool
 
 
 @dataclass(frozen=True)
@@ -99,6 +123,74 @@ def console(
         return refusal
     assert account is not None  # noqa: S101 (_refusal turned away anyone signed out)
     return _render(request, session, account, settings, notice=NOTICES.get(notice, ""))
+
+
+@router.post("/admin/runs", response_model=None)
+def run_any_company(
+    request: Request,
+    *,
+    session: DbSession,
+    settings: AppSettings,
+    account: SignedIn,
+    website: Annotated[str, Form()] = "",
+    csrf: Annotated[str, Form()] = "",
+) -> Response:
+    """A run for any company's website, started at once. It's the operator's own: they review its plan, and the
+    list comes to them."""
+    refusal = _refusal(request, account, settings)
+    if refusal is not None:
+        return refusal
+    assert account is not None  # noqa: S101 (_refusal turned away anyone signed out)
+    errors: dict[str, str] = {}
+    site = domains.website(website)
+    if not common.csrf_ok(request, csrf):
+        errors["form"] = EXPIRED_FORM
+    elif site is None:
+        errors["website"] = "Enter the company's website, for example acme.com."
+    if errors or site is None:
+        form = {"website": website}
+        return _render(request, session, account, settings, errors=errors, form=form, status_code=400)
+    url, domain = site
+    run = Run(
+        account_id=account.id,
+        domain=domain,
+        website_url=url,
+        budget_usd=settings.run_budget_usd,
+        status=RunStatus.ANALYZING,
+        status_detail=start.READING_SITE,
+        operator_run=True,
+    )
+    session.add(run)
+    session.flush()
+    now = common.now()
+    queue.enqueue(session, ANALYZE_SITE, {"run_id": str(run.id)}, run_after=now, dedupe_key=f"{ANALYZE_SITE}:{run.id}")
+    session.commit()  # before the redirect: the session's own commit comes after the response is sent
+    log.info("operator run started", extra={"run_id": str(run.id), "account_id": str(account.id)})
+    return RedirectResponse(f"/runs/{run.id}", status_code=303)
+
+
+@router.post("/admin/new-runs", response_model=None)
+def new_runs(
+    request: Request,
+    *,
+    session: DbSession,
+    settings: AppSettings,
+    account: SignedIn,
+    take: Annotated[str, Form()] = "",
+    csrf: Annotated[str, Form()] = "",
+) -> Response:
+    """The console's switch: whether the start form takes new runs ("yes" or "no")."""
+    refusal = _refusal(request, account, settings)
+    if refusal is not None:
+        return refusal
+    assert account is not None  # noqa: S101 (_refusal turned away anyone signed out)
+    if not common.csrf_ok(request, csrf) or take not in ("yes", "no"):
+        return _render(request, session, account, settings, errors={"form": EXPIRED_FORM}, status_code=400)
+    pause = take == "no"
+    flags.turn(session, flags.NEW_RUNS_PAUSED, on=pause, by=account.id, now=common.now())
+    session.commit()
+    log.info("new runs paused" if pause else "new runs opened", extra={"account_id": str(account.id)})
+    return RedirectResponse(f"/admin?notice={'paused' if pause else 'opened'}", status_code=303)
 
 
 @router.get("/admin/runs/{run_id}/cancel", response_class=HTMLResponse)
@@ -212,6 +304,8 @@ def _render(
     context: dict[str, Any] = {
         "account": account,
         "paused": settings.pause_new_runs,
+        "taking": not flags.is_on(session, flags.NEW_RUNS_PAUSED),
+        "budget": _usd(settings.run_budget_usd),
         "manual_ai": settings.manual_ai,
         "operator_api": settings.operator_api_token is not None,
         "questions": session.scalar(select(func.count()).select_from(AiTask).where(AiTask.answer.is_(None))) or 0,
@@ -222,17 +316,21 @@ def _render(
         "today": _today(session, settings, now),
         "queue": _queue(session, now),
         "failed_jobs": _failed_jobs(session),
-        "runs": _runs(session),
+        "runs": _runs(session, account),
         "grants": _grants(session),
     }
     return page(request, "console.html", context, settings, status_code=status_code)
 
 
 def _today(session: Session, settings: Settings, now: datetime) -> Today:
-    row = session.get(BudgetDay, budget.utc_day(now))
+    day = budget.utc_day(now)
+    row = session.get(BudgetDay, day)
     spent, reserved = (row.spent_usd, row.reserved_usd) if row is not None else (Decimal(0), Decimal(0))
     left = budget.remaining_today(session, settings.daily_cap_usd, now=now)
-    return Today(budget.utc_day(now).isoformat(), _usd(spent), _usd(reserved), _usd(settings.daily_cap_usd), _usd(left))
+    used = min(100, round((spent + reserved) * 100 / settings.daily_cap_usd))
+    midnight = datetime(day.year, day.month, day.day, tzinfo=UTC)
+    started = session.scalar(select(func.count()).select_from(Run).where(Run.created_at >= midnight)) or 0
+    return Today(day.isoformat(), _usd(spent), _usd(reserved), _usd(settings.daily_cap_usd), _usd(left), used, started)
 
 
 def _queue(session: Session, now: datetime) -> Queue:
@@ -262,7 +360,7 @@ def _failed_jobs(session: Session) -> list[FailedJob]:
     ]
 
 
-def _runs(session: Session) -> list[RunRow]:
+def _runs(session: Session, viewer: Account) -> list[RunRow]:
     rows = session.execute(
         select(Run, Account.email)
         .join(Account, Account.id == Run.account_id)
@@ -274,8 +372,9 @@ def _runs(session: Session) -> list[RunRow]:
             id=run.id,
             created=_when(run.created_at),
             domain=run.domain,
-            requester=email,
-            status=run.status.replace("_", " "),
+            requester="You" if email == viewer.email else email,
+            status=STATUSES[run.status][0],
+            tone=STATUSES[run.status][1],
             detail=run.status_detail or "",
             error=run.error or "",
             spent=f"{_usd(run.spent_usd)} of {_usd(run.budget_usd)}"
@@ -283,6 +382,7 @@ def _runs(session: Session) -> list[RunRow]:
             credits=run.apollo_credits_used,
             leads=run.leads_count,
             open=run.status not in FINISHED,
+            operator_run=run.operator_run,
         )
         for run, email in rows
     ]

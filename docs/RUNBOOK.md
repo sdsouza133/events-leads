@@ -108,6 +108,11 @@ found on as `source_url`; labels must cover each post exactly once. Each run ask
 answered or not, are deleted after 30 days by the retention job, since they can quote people's posts. Once
 `ANTHROPIC_API_KEY` is set, Claude answers again and any task still open is simply never used.
 
+## Closing the start form for a while
+
+The console's "New runs" switch closes the start form at once, without a deploy: visitors see that we're not taking
+new requests. Runs already asked for carry on and keep spending; to stop that too, see below. Flip it back to open.
+
 ## Pausing spend immediately
 
 Set `PAUSE_NEW_RUNS=true` on both services, web and worker; Railway restarts them with it. The start form takes no new

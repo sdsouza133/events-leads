@@ -14,13 +14,19 @@ MIDNIGHT_SPREAD = timedelta(minutes=15)
 
 def runs_used(session: Session, domain: str) -> int:
     """How many of a company's free runs are used: every run someone signed in for, except one that stopped before
-    spending anything (a website we couldn't read, a run stopped because the company had used its runs)."""
+    spending anything (a website we couldn't read, a run stopped because the company had used its runs), and one an
+    operator started from the console."""
     stopped_free = and_(Run.status.in_([RunStatus.FAILED, RunStatus.CANCELED]), Run.spent_usd == 0)
     return (
         session.scalar(
             select(func.count())
             .select_from(Run)
-            .where(Run.domain == domain, Run.status != RunStatus.AWAITING_SIGN_IN, not_(stopped_free))
+            .where(
+                Run.domain == domain,
+                Run.status != RunStatus.AWAITING_SIGN_IN,
+                not_(stopped_free),
+                Run.operator_run.is_(False),
+            )
         )
         or 0
     )
