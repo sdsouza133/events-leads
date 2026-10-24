@@ -8,6 +8,7 @@ from sqlalchemy import text
 
 from app.db import get_engine, session_scope
 from app.models import Base
+from tests.conftest import require_a_test_database
 
 pytestmark = pytest.mark.db
 
@@ -55,3 +56,13 @@ def test_migrations_apply_and_match_the_models() -> None:
 
 def test_constraint_names_follow_the_convention() -> None:
     assert Base.metadata.naming_convention["pk"] == "pk_%(table_name)s"
+
+
+@pytest.mark.parametrize("name", ["postgres", "el_dev", "el_test_copy", "", None])
+def test_database_tests_refuse_a_database_not_named_for_tests(name: str | None) -> None:
+    with pytest.raises(pytest.UsageError, match="must end in _test"):
+        require_a_test_database(name)
+
+
+def test_the_test_database_is_accepted() -> None:
+    require_a_test_database("el_test")

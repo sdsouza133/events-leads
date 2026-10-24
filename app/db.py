@@ -66,4 +66,4 @@ def database_is_reachable() -> bool:
 def rowcount(result: Result[Any]) -> int:
     """Rows touched by an UPDATE or DELETE. SQLAlchemy types `Session.execute` as a plain Result, but for those
     statements it is a CursorResult, which carries the count."""
-    return int(cast("CursorResult[Any]", result).rowcount or 0)
+    return int(cast(CursorResult[Any], result).rowcount or 0)

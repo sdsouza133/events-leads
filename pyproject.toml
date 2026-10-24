@@ -90,5 +90,4 @@ skip_covered = true
 exclude_also = [
     "if TYPE_CHECKING:",
     "raise NotImplementedError",
-    '^\s*\.\.\.$',  # bodies of Protocol methods
 ]
