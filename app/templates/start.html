@@ -1,46 +1,103 @@
 {% extends "base.html" %}
-{% block title %}Find the people at your industry's events{% endblock %}
+{% block title %}See who's going to your industry's events{% endblock %}
+{% block main_class %}page-landing{% endblock %}
 {% block main %}
-<h1>Find the people at your industry's events</h1>
-<p class="lead">Tell us your website. We work out who you sell to, find the events they go to, and send you up to
-50 attendees who fit, each with a verified work email and their LinkedIn profile.</p>
+<div class="hero">
+  <div class="hero-copy">
+    <span class="chip">{{ icon("check", 16) }} Free · up to 50 leads</span>
+    <h1>See who's going to your industry's events.</h1>
+    <p class="hero-sub">Give us your website. We'll find the people speaking, exhibiting and attending, with verified
+    emails.</p>
 
-{% if paused %}
-<p class="notice" role="status">We're not taking new requests right now. Please come back later.</p>
-{% else %}
-{% if errors %}
-<div class="error-summary" role="alert" aria-labelledby="error-summary-title">
-  <h2 id="error-summary-title">Please check the form</h2>
-  <ul>
-    {% if errors.form %}<li>{{ errors.form }}</li>{% endif %}
-    {% if errors.website %}<li><a href="#website">{{ errors.website }}</a></li>{% endif %}
-    {% if errors.email %}<li><a href="#email">{{ errors.email }}</a></li>{% endif %}
-  </ul>
+    <div class="card signup" id="get-started">
+      {% if paused %}
+      <p class="notice" role="status">We're not taking new requests right now. Please come back later.</p>
+      {% else %}
+      {% if errors %}
+      <div class="error-summary" role="alert" aria-labelledby="error-summary-title">
+        <h2 id="error-summary-title">Please check the form</h2>
+        <ul>
+          {% if errors.form %}<li>{{ errors.form }}</li>{% endif %}
+          {% if errors.website %}<li><a href="#website">{{ errors.website }}</a></li>{% endif %}
+          {% if errors.email %}<li><a href="#email">{{ errors.email }}</a></li>{% endif %}
+        </ul>
+      </div>
+      {% endif %}
+      <form method="post" action="/start" novalidate>
+        <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
+        <div class="field">
+          <label for="website">Your company's website</label>
+          {% if errors.website %}<p class="error" id="website-error">{{ errors.website }}</p>{% endif %}
+          <input id="website" name="website" type="text" inputmode="url" autocomplete="url" spellcheck="false"
+                 placeholder="yourcompany.com" value="{{ form.website or '' }}" required
+                 {% if errors.website %}aria-describedby="website-error" aria-invalid="true"{% endif %}>
+        </div>
+        <div class="field">
+          <label for="email">Your work email</label>
+          <p class="hint" id="email-hint">At the same domain as your website.</p>
+          {% if errors.email %}<p class="error" id="email-error">{{ errors.email }}</p>{% endif %}
+          <input id="email" name="email" type="email" autocomplete="email" spellcheck="false"
+                 placeholder="you@yourcompany.com" value="{{ form.email or '' }}" required
+                 aria-describedby="email-hint{% if errors.email %} email-error{% endif %}"
+                 {% if errors.email %}aria-invalid="true"{% endif %}>
+        </div>
+        <button type="submit" class="btn btn-lg btn-block">Get my free list {{ icon("arrow-right") }}</button>
+      </form>
+      <p class="signup-note">We'll email you a link to start. One free list per company.</p>
+      {% endif %}
+    </div>
+
+    <ul class="ticks">
+      <li>{{ icon("check", 16, 2.2) }} No credit card</li>
+      <li>{{ icon("check", 16, 2.2) }} Ready in minutes</li>
+      <li>{{ icon("check", 16, 2.2) }} Lists deleted after 30 days</li>
+    </ul>
+  </div>
+
+  <section class="card card-raised sample" aria-labelledby="sample-title">
+    <div class="sample-head">
+      <div>
+        <span class="kicker">Sample list</span>
+        <h2 class="sample-title" id="sample-title">47 leads · 3 events</h2>
+      </div>
+      <span class="sample-csv">{{ icon("download", 16) }} CSV</span>
+    </div>
+    <ul class="people">
+      <li class="person">
+        <span class="avatar tone-warm" aria-hidden="true">MO</span>
+        <span class="person-text"><span class="person-name">Maya Okafor</span><span class="person-role">VP Marketing · Contoso</span></span>
+        <span class="badge tone-warm">Speaking</span>
+      </li>
+      <li class="person">
+        <span class="avatar tone-accent" aria-hidden="true">DR</span>
+        <span class="person-text"><span class="person-name">Daniel Reyes</span><span class="person-role">Head of Growth · Fabrikam</span></span>
+        <span class="badge tone-accent">Exhibiting</span>
+      </li>
+      <li class="person">
+        <span class="avatar tone-ok" aria-hidden="true">PN</span>
+        <span class="person-text"><span class="person-name">Priya Nair</span><span class="person-role">Founder · Northwind Traders</span></span>
+        <span class="badge tone-ok">Going</span>
+      </li>
+    </ul>
+    <p class="sample-foot">{{ icon("mail", 18) }} Every lead comes with a verified work email.</p>
+  </section>
 </div>
-{% endif %}
 
-<form method="post" action="/start" novalidate>
-  <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
-  <div class="field">
-    <label for="website">Your company's website</label>
-    <p class="hint" id="website-hint">For example, acme.com</p>
-    {% if errors.website %}<p class="error" id="website-error">{{ errors.website }}</p>{% endif %}
-    <input id="website" name="website" type="text" inputmode="url" autocomplete="url" spellcheck="false"
-           value="{{ form.website or '' }}" required
-           aria-describedby="website-hint{% if errors.website %} website-error{% endif %}"
-           {% if errors.website %}aria-invalid="true"{% endif %}>
-  </div>
-  <div class="field">
-    <label for="email">Your work email</label>
-    <p class="hint" id="email-hint">At the same domain as the website. We email you a link to sign in.</p>
-    {% if errors.email %}<p class="error" id="email-error">{{ errors.email }}</p>{% endif %}
-    <input id="email" name="email" type="email" autocomplete="email" spellcheck="false"
-           value="{{ form.email or '' }}" required
-           aria-describedby="email-hint{% if errors.email %} email-error{% endif %}"
-           {% if errors.email %}aria-invalid="true"{% endif %}>
-  </div>
-  <button type="submit">Email me a sign-in link</button>
-</form>
-<p class="small">One free list per company. Nothing runs until you open the link we email you.</p>
-{% endif %}
+<section class="how" id="how" aria-labelledby="how-title">
+  <h2 id="how-title">How it works</h2>
+  <ol class="steps-3">
+    <li class="step-card">
+      <span class="step-icon tone-accent">{{ icon("globe", 24) }}</span>
+      <div><h3>We read your site</h3><p>and work out who you sell to.</p></div>
+    </li>
+    <li class="step-card">
+      <span class="step-icon tone-warm">{{ icon("calendar", 24) }}</span>
+      <div><h3>You pick the events</h3><p>We line up the best three. One click to go.</p></div>
+    </li>
+    <li class="step-card">
+      <span class="step-icon tone-ok">{{ icon("users", 24) }}</span>
+      <div><h3>You get the list</h3><p>Names, roles and emails, best fit first.</p></div>
+    </li>
+  </ol>
+</section>
 {% endblock %}

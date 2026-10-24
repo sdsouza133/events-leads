@@ -102,6 +102,14 @@ def test_the_start_page_asks_for_a_website_and_a_work_email(client: TestClient) 
     assert response.headers["Cache-Control"] == "no-store"
 
 
+def test_the_start_page_shows_the_offer_a_sample_list_and_how_it_works(client: TestClient) -> None:
+    page = client.get("/").text
+    assert "Get my free list" in page
+    assert "Sample list" in page
+    assert 'id="how"' in page
+    assert 'href="/sign-in-again">Sign in</a>' in page  # signed out: a way in that starts nothing
+
+
 def test_a_form_posted_without_the_page_s_token_is_refused(client: TestClient, db: Session) -> None:
     response = client.post("/start", data={"website": "acmewidgets.com", "email": EMAIL, "csrf": "forged"})
     assert response.status_code == 400
@@ -131,7 +139,7 @@ def test_each_problem_is_explained_next_to_its_field(
 
 
 def test_a_valid_form_creates_the_run_and_queues_its_sign_in_email(client: TestClient, db: Session) -> None:
-    assert "Check your email" in ask(client, website="https://www.acmewidgets.com/about")
+    assert "Check your inbox" in ask(client, website="https://www.acmewidgets.com/about")
     [run] = runs(db)
     assert (run.status, run.domain, run.website_url) == (
         RunStatus.AWAITING_SIGN_IN,
@@ -168,7 +176,7 @@ def test_a_company_that_used_its_free_run_is_told_so(client: TestClient, db: Ses
     make_run(db, domain="acmewidgets.com", status=RunStatus.READY)
     db.commit()
     page = ask(client)
-    assert "acmewidgets.com has already used its free list" in page
+    assert "acmewidgets.com has had its free list" in page
     assert 'href="/sign-in-again"' in page  # whoever asked for it can still get back in
     assert jobs(db, SEND_SIGN_IN) == []
 
@@ -197,7 +205,7 @@ def test_the_same_form_sent_twice_at_once_makes_one_run(client: TestClient, db: 
             )
         )
         first.commit()
-        assert "Check your email" in second.result(timeout=10).text
+        assert "Check your inbox" in second.result(timeout=10).text
     finally:
         first.close()  # if an assertion failed before the commit, this lets the waiting form finish
         pool.shutdown()
@@ -207,14 +215,14 @@ def test_the_same_form_sent_twice_at_once_makes_one_run(client: TestClient, db: 
 def test_a_run_that_stopped_before_spending_anything_does_not_use_the_free_run(client: TestClient, db: Session) -> None:
     make_run(db, domain="acmewidgets.com", status=RunStatus.FAILED)  # the website couldn't be read
     db.commit()
-    assert "Check your email" in ask(client)
+    assert "Check your inbox" in ask(client)
 
 
 def test_a_run_an_operator_granted_lets_the_company_start_another(client: TestClient, db: Session) -> None:
     make_run(db, domain="acmewidgets.com", status=RunStatus.READY)
     db.add(RunGrant(domain="acmewidgets.com", note="a second list"))
     db.commit()
-    assert "Check your email" in ask(client)
+    assert "Check your inbox" in ask(client)
 
 
 def test_while_new_runs_are_paused_the_form_takes_no_requests(db: Session) -> None:
@@ -402,7 +410,7 @@ def test_someone_signed_out_gets_a_new_link_to_the_same_run(
 
     response = client.post("/sign-in-again", data={"email": EMAIL, "csrf": csrf(client)})
     assert response.status_code == 200
-    assert "Check your email" in response.text
+    assert "Check your inbox" in response.text
     send_links(settings)
     assert sign_in(client, token_sent_to(db)) == f"/runs/{run.id}"
     assert [r.id for r in runs(db)] == [run.id]  # no new run
@@ -412,7 +420,7 @@ def test_someone_signed_out_gets_a_new_link_to_the_same_run(
 def test_asking_for_a_new_link_does_not_say_who_has_an_account(client: TestClient, db: Session) -> None:
     response = client.post("/sign-in-again", data={"email": "nobody@acmewidgets.com", "csrf": csrf(client)})
     assert response.status_code == 200
-    assert "If <strong>nobody@acmewidgets.com</strong> has asked us for a list" in response.text
+    assert "If <strong>nobody@acmewidgets.com</strong> has a list with us" in response.text
     assert jobs(db, SEND_SIGN_IN) == []
 
 
@@ -499,6 +507,28 @@ def test_an_operator_sees_every_run(client: TestClient, db: Session, settings: S
     db.commit()
     signed_in_run(client, db, settings, email="ops@b2bops.com")
     assert client.get(f"/runs/{theirs.id}").status_code == 200
+
+
+PAGE = {"Accept": "text/html,application/xhtml+xml,*/*;q=0.8"}  # what a browser sends when it opens an address
+
+
+def test_a_browser_opening_an_address_with_no_page_gets_the_not_found_page(
+    client: TestClient, db: Session, settings: Settings
+) -> None:
+    for address in ("/no-such-page", "/runs/not-a-run-id"):  # mistyped, or a run link cut short
+        response = client.get(address, headers=PAGE)
+        assert response.status_code == 404
+        assert "Page not found" in response.text
+        assert 'href="/sign-in-again">Sign in</a>' in response.text
+    signed_in_run(client, db, settings)
+    assert EMAIL in client.get("/no-such-page", headers=PAGE).text  # the header still shows who's signed in
+
+
+def test_a_script_asking_for_an_address_with_no_page_still_gets_json(client: TestClient) -> None:
+    missing = client.get("/no-such-page", headers={"Accept": "application/json"})
+    assert (missing.status_code, missing.json()) == (404, {"detail": "Not Found"})
+    assert client.get("/runs/not-a-run-id", headers={"Accept": "application/json"}).status_code == 422
+    assert client.get("/static/no-such-file.css", headers={"Accept": "text/css"}).status_code == 404
 
 
 def test_a_run_page_asks_a_stranger_to_sign_in(client: TestClient, db: Session) -> None:

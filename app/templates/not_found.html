@@ -1,6 +1,11 @@
 {% extends "base.html" %}
 {% block title %}Page not found{% endblock %}
+{% block main_class %}page-center{% endblock %}
 {% block main %}
-<h1>Page not found</h1>
-<p>This page doesn't exist, or you don't have access to it. <a href="/">Go to the start page</a>.</p>
+<div class="card card-raised panel">
+  <span class="panel-icon">{{ icon("search", 40, 1.8) }}</span>
+  <h1>Page not found</h1>
+  <p>This page doesn't exist, or it isn't yours to see.</p>
+  <a class="btn btn-lg" href="/">Go to the start page</a>
+</div>
 {% endblock %}

@@ -209,7 +209,9 @@ A load test in the QA repo checks the web tier at 500 concurrent users and the q
   posted from another site is refused.
 - **SSRF:** the website fetcher resolves the host itself, refuses private, loopback, link-local and reserved
   addresses, connects to the address it checked (no DNS rebinding), re-checks every redirect, and caps size and time.
-- **Headers:** strict Content-Security-Policy, HSTS, no framing.
+- **Headers:** strict Content-Security-Policy, HSTS, no framing. The policy allows only the site itself, so pages
+  use no inline styles or scripts, and the fonts (Inter and Bricolage Grotesque, SIL Open Font License, in
+  `app/static/fonts`) and icons (`app/web/icons.py`) are served from the site. `tests/test_web_assets.py` checks it.
 - **Request size:** a body over 256 KB is refused with 413 before it is read into memory, whether its
   Content-Length says so or it arrives chunked (`LimitBody` in `app/main.py`). The largest real ones, the plan form
   and an operator's answer about 25 posts, are around ten kilobytes.
