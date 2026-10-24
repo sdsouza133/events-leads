@@ -31,6 +31,15 @@ def test_production_accepts_a_long_random_secret() -> None:
     assert settings.env == "production"
 
 
+@pytest.mark.parametrize("env", ["staging", "production"])
+def test_deployed_environments_refuse_a_short_operator_token(env: str) -> None:
+    deployed = {"env": env, "secret_key": "k" * 48, "database_url": PROD_DB, "providers": "real"}
+    with pytest.raises(ValidationError, match="OPERATOR_API_TOKEN"):
+        Settings.model_validate({**deployed, "operator_api_token": "guessable"})
+    assert Settings.model_validate({**deployed, "operator_api_token": "t" * 32}).operator_api_token is not None
+    assert Settings.model_validate(deployed).operator_api_token is None  # it's optional: no token, no operator API
+
+
 def test_production_refuses_to_fall_back_to_the_dev_database(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("DATABASE_URL", raising=False)
     with pytest.raises(ValidationError, match="DATABASE_URL must be set"):

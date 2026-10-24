@@ -66,8 +66,8 @@ latest failed jobs (their `last_error`).
 
 With `PROVIDERS=real` and no `ANTHROPIC_API_KEY`, nothing goes to Claude. Each question the pipeline would ask it
 (read a website, find events, label posts) waits as a task, and the job that asked checks back every 2 minutes. The
-console says how many are waiting. `OPERATOR_API_TOKEN` must be set (a long random value, e.g. `openssl rand -hex 32`);
-answer with it as a bearer token:
+console says how many are waiting. `OPERATOR_API_TOKEN` must be set: a random value of at least 32 characters
+(staging and production refuse a shorter one), e.g. `openssl rand -hex 32`. Answer with it as a bearer token:
 
 ```sh
 curl -H "Authorization: Bearer $OPERATOR_API_TOKEN" https://events.theb2bdynamics.com/admin/api/tasks
@@ -78,8 +78,9 @@ curl -X POST -H "Authorization: Bearer $OPERATOR_API_TOKEN" -H "Content-Type: ap
 Each task lists its `question` (the website's pages; the analysis and today's date; or the posts to label), the run
 waiting on it, and the `answer_schema` its answer must fit. A 422 lists what's wrong in `problems`: fix it and post
 again. Events must fall within 60 days before and 90 days after the question's `today`, each with the page it was
-found on as `source_url`; labels must cover each post exactly once. Once `ANTHROPIC_API_KEY` is set, Claude answers
-again and any task still open is simply never used.
+found on as `source_url`; labels must cover each post exactly once. Each run asks for its own events. Questions,
+answered or not, are deleted after 30 days, since they can quote people's posts. Once `ANTHROPIC_API_KEY` is set,
+Claude answers again and any task still open is simply never used.
 
 ## Pausing spend immediately
 

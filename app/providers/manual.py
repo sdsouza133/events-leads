@@ -13,15 +13,16 @@ import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from datetime import date
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.orm import Session
 
-from app.db import session_scope
+from app.db import rowcount, session_scope
 from app.models import AiTask
 from app.providers.anthropic_llm import EVENTS_LOOK_AHEAD, EVENTS_LOOK_BACK, MAX_EVENTS
 from app.providers.types import Answer, AnswerPendingError, FetchedPage
@@ -32,6 +33,7 @@ FIND_EVENTS = "find_events"
 LABEL_POSTS = "label_posts"
 MODEL = "manual"
 FREE = Decimal(0)
+KEPT_FOR = timedelta(days=30)  # a question can quote people's posts: personal data is kept no longer than this
 
 ASKING_RUN: ContextVar[uuid.UUID | None] = ContextVar("asking_run", default=None)
 """The run whose job is asking, so a task can say which run waits on it. The worker sets it (`asking_for`)."""
@@ -70,9 +72,13 @@ class ManualLlm:
         return Answer(SiteAnalysis.model_validate(answer), FREE, MODEL)
 
     def find_events(self, analysis: SiteAnalysis, *, today: date) -> Answer[list[EventSuggestion]]:
+        """Each run asks for its own events (a later run of the same company needs events for its own dates), and
+        an answer given on an earlier day keeps only the events still in today's window."""
         about = analysis.model_dump(mode="json")
-        answer = _ask(FIND_EVENTS, identity=about, question={"analysis": about, "today": today.isoformat()})
-        return Answer(EventsAnswer.model_validate(answer).events, FREE, MODEL)
+        identity = {"analysis": about, "run": str(ASKING_RUN.get())}
+        answer = _ask(FIND_EVENTS, identity=identity, question={"analysis": about, "today": today.isoformat()})
+        events = EventsAnswer.model_validate(answer).events
+        return Answer([event for event in events if _in_window(event, today)], FREE, MODEL)
 
     def label_posts(self, event_name: str, posts: list[PostToLabel]) -> Answer[list[LabeledPost]]:
         if not posts:
@@ -99,12 +105,10 @@ def problems(question: dict[str, Any], answer: BaseModel) -> list[str]:
     found: list[str] = []
     if isinstance(answer, EventsAnswer):
         today = date.fromisoformat(question["today"])
-        earliest, latest = today - EVENTS_LOOK_BACK, today + EVENTS_LOOK_AHEAD
         names: set[str] = set()
         for i, event in enumerate(answer.events):
-            ends, starts = event.end_date or event.start_date, event.start_date or event.end_date
-            if (ends and ends < earliest) or (starts and starts > latest):
-                found.append(f"events.{i}: not between {earliest} and {latest}")
+            if not _in_window(event, today):
+                found.append(f"events.{i}: not between {today - EVENTS_LOOK_BACK} and {today + EVENTS_LOOK_AHEAD}")
             name = " ".join(event.name.lower().split())
             if name in names:
                 found.append(f"events.{i}: the same event twice")
@@ -114,6 +118,11 @@ def problems(question: dict[str, Any], answer: BaseModel) -> list[str]:
         if sorted(label.post_id for label in answer.labels) != asked:
             found.append("labels: give exactly one label for each post asked about")
     return found
+
+
+def forget_old_tasks(session: Session, *, now: datetime) -> int:
+    """Delete the questions asked more than 30 days ago, answered or not. Returns how many there were."""
+    return rowcount(session.execute(delete(AiTask).where(AiTask.created_at < now - KEPT_FOR)))
 
 
 @contextmanager
@@ -128,6 +137,12 @@ def asking_for(run_id: object) -> Iterator[None]:
         yield
     finally:
         ASKING_RUN.reset(token)
+
+
+def _in_window(event: EventSuggestion, today: date) -> bool:
+    """Whether the event falls between 60 days before today and 90 days after, as Claude's events must."""
+    ends, starts = event.end_date or event.start_date, event.start_date or event.end_date
+    return not ((ends and ends < today - EVENTS_LOOK_BACK) or (starts and starts > today + EVENTS_LOOK_AHEAD))
 
 
 def _ask(kind: str, *, identity: object, question: dict[str, Any]) -> dict[str, Any]:

@@ -5,7 +5,7 @@ import html
 import re
 import uuid
 from collections.abc import Iterator
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -127,6 +127,35 @@ def test_events_come_back_as_suggestions(db: Session) -> None:
     answer(db, task.id, {"events": [EVENT]})
     [event] = llm.find_events(ANALYSIS, today=NOW.date() + timedelta(days=1)).value  # a day later: the same task
     assert (event.name, event.source_url) == ("RevOps Summit 2026", "https://news.example/revops-summit")
+
+
+def test_each_run_asks_for_its_own_events_and_an_old_answer_keeps_only_events_in_the_window(db: Session) -> None:
+    first, second = make_run(db), make_run(db)  # say, a company's free run and a run granted months later
+    db.commit()
+    llm = ManualLlm()
+    for run in (first, second):
+        with manual.asking_for(str(run.id)), pytest.raises(AnswerPendingError):
+            llm.find_events(ANALYSIS, today=NOW.date())
+    first_task, second_task = tasks(db)  # one question each, though the analysis is the same
+    assert (first_task.run_id, second_task.run_id) == (first.id, second.id)
+
+    answer(db, first_task.id, {"events": [EVENT]})
+    with manual.asking_for(str(first.id)):
+        assert len(llm.find_events(ANALYSIS, today=NOW.date()).value) == 1
+        # Read again in February, the summit (November 12-13) is more than 60 days past: it's left out.
+        assert llm.find_events(ANALYSIS, today=date(2027, 2, 1)).value == []
+
+
+def test_questions_are_deleted_after_30_days_answered_or_not(db: Session) -> None:
+    old_open = open_task(db, "find_events", {"analysis": {}, "today": "2026-09-01"})
+    old_answered = open_task(db, "analyze_site", {"pages": []})
+    recent = open_task(db, "label_posts", {"event": "RevOps Summit 2026", "posts": []})
+    old_open.created_at = old_answered.created_at = NOW - timedelta(days=31)
+    old_answered.answer = ANALYSIS.model_dump(mode="json")
+    db.commit()
+    settings = Settings()
+    Worker(JobContext(settings=settings, providers=build_providers(settings), clock=lambda: NOW), {}).maintain()
+    assert [task.id for task in tasks(db)] == [recent.id]
 
 
 def test_every_post_gets_one_label_in_the_order_asked(db: Session) -> None:

@@ -121,6 +121,11 @@ class Settings(BaseSettings):
                 raise ValueError(
                     f"SECRET_KEY must be set to a random value of at least {MIN_SECRET_KEY_LENGTH} characters"
                 )
+            token = self.operator_api_token
+            if token is not None and len(token.get_secret_value()) < MIN_SECRET_KEY_LENGTH:
+                raise ValueError(
+                    f"OPERATOR_API_TOKEN must be a random value of at least {MIN_SECRET_KEY_LENGTH} characters"
+                )
         if not self.database_url.startswith(POSTGRES_SCHEMES):
             raise ValueError("DATABASE_URL must be a PostgreSQL URL")
         if self.env in ("staging", "production") and self.sqlalchemy_url == DEV_DATABASE_URL:

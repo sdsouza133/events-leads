@@ -180,7 +180,8 @@ class Worker:
         self.maintain()
 
     def maintain(self) -> None:
-        """Put back jobs whose worker stopped answering, and close reservations nobody came back for."""
+        """Put back jobs whose worker stopped answering, close reservations nobody came back for, and delete manual
+        AI questions past the 30 days personal data is kept."""
         stale_after = timedelta(seconds=self.ctx.settings.worker_stale_after_seconds)
         with session_scope() as session:
             released = queue.release_stale(session, stale_after, now=self.ctx.now())
@@ -191,13 +192,16 @@ class Worker:
                     self._give_up(kind.on_give_up, session, job.payload, context)
         with session_scope() as session:
             closed = budget.sweep(session, RESERVATIONS_OPEN_AT_MOST, now=self.ctx.now())
-        if released.requeued or released.given_up or closed:
+        with session_scope() as session:
+            forgotten = manual.forget_old_tasks(session, now=self.ctx.now())
+        if released.requeued or released.given_up or closed or forgotten:
             log.info(
                 "housekeeping",
                 extra={
                     "requeued_jobs": released.requeued,
                     "given_up_jobs": len(released.given_up),
                     "closed_reservations": closed,
+                    "forgotten_ai_tasks": forgotten,
                 },
             )
 

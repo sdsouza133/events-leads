@@ -113,7 +113,9 @@ question becomes an `ai_tasks` row, found again by what identifies it (the websi
 the job that asked is put back for 2 minutes without using up an attempt. Its spend reservation is released, since
 nobody billable was asked. Operators answer through the operator API (`/admin/api/tasks`, with `OPERATOR_API_TOKEN`
 as a bearer token). An answer must fit the schema Claude's answer would have to, and its question: events within the
-window asked about, one label for each post. The job then carries on as if Claude had answered, at no cost.
+window asked about, one label for each post. The job then carries on as if Claude had answered, at no cost. Each
+run asks its own events question, and the worker's housekeeping deletes questions after 30 days, answered or not,
+since they can quote people's posts.
 
 ### The operator console
 
