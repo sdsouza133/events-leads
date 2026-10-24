@@ -12,6 +12,6 @@ three working days.
 - Dependencies are scanned for known vulnerabilities on every pull request and updated weekly by Dependabot.
 - CodeQL static analysis runs on every pull request and weekly.
 - Personal data (names, emails, LinkedIn URLs) is shown only to the account that requested it and to operators, and
-  is deleted after 30 days. Logs identify people by internal IDs and never contain lead data; a requester's email
-  appears only masked, on sign-in lines written before an account exists.
+  is deleted after 30 days. Logs identify people by internal IDs and never contain lead data or sign-in links; a
+  requester's email appears only masked, on the sign-in and rate-limit lines written before an account exists.
 - See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#security) for sign-in, authorization, CSRF and SSRF protections.
