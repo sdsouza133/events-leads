@@ -6,7 +6,9 @@ readme = "README.md"
 requires-python = ">=3.12,<3.14"
 dependencies = [
     "alembic>=1.13",
+    "beautifulsoup4>=4.12",
     "fastapi>=0.115",
+    "httpx2>=1.0",
     "psycopg[binary]>=3.2",
     "pydantic>=2.8",
     "pydantic-settings>=2.4",
@@ -16,7 +18,6 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "httpx2>=1.0",
     "mypy>=1.11",
     "pre-commit>=3.8",
     "pytest>=8.3",
