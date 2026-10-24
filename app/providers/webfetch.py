@@ -9,17 +9,21 @@ The rules, applied to the first request and to every redirect:
 - we connect to the address we checked and send the hostname in the Host header and TLS SNI, so the name can't
   resolve to something else between the check and the connection (DNS rebinding);
 - redirects are followed by hand, at most 3;
-- at most 2 MB is read, and the whole fetch (lookups, redirects and the body) has 10 seconds: no step starts once
-  they are spent, and each lookup and request gets only what is left of them as its timeout;
+- at most 2 MB is read, and the whole fetch (lookups, redirects and the body) has 10 seconds. The caller gets the
+  page or a FetchError by then, whatever the site does: the attempt runs on its own thread, and when time is up its
+  connection is shut down (httpx's timeouts apply to each read, so a site sending a byte at a time could otherwise
+  hold it open for as long as it liked);
 - only HTML and plain text are accepted.
 """
 
+import contextlib
 import ipaddress
 import socket
+import threading
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from typing import NamedTuple
+from typing import Any, NamedTuple
 from urllib.parse import SplitResult, urljoin, urlsplit, urlunsplit
 
 import httpx2
@@ -33,7 +37,7 @@ DEFAULT_PORTS = {"http": 80, "https": 443}
 MAX_BYTES = 2_000_000
 MAX_REDIRECTS = 3
 TIMEOUT_SECONDS = 10.0
-LOOKUP_THREADS = 4
+FETCH_THREADS = 4
 MAX_TEXT_CHARS = 20_000
 MAX_LINKS = 200
 ACCEPTED_TYPES = ("text/html", "application/xhtml+xml", "text/plain")
@@ -125,29 +129,46 @@ class SafeFetcher:
         self._max_bytes = max_bytes
         self._timeout = timeout_seconds
         self._max_redirects = max_redirects
-        # trust_env=False: proxy settings from the environment would bypass the address checks.
+        # trust_env=False: proxy settings from the environment would bypass the address checks. No keep-alive: every
+        # request opens its own connection, so the attempt it belongs to can shut it down (see _Cutoff).
         self._client = httpx2.Client(
-            transport=transport, timeout=timeout_seconds, follow_redirects=False, trust_env=False
+            transport=transport,
+            timeout=timeout_seconds,
+            follow_redirects=False,
+            trust_env=False,
+            limits=httpx2.Limits(max_keepalive_connections=0),
         )
-        # Lookups run here so the fetch can stop waiting for one that hangs (getaddrinfo has no timeout).
-        self._lookups = ThreadPoolExecutor(max_workers=LOOKUP_THREADS, thread_name_prefix="webfetch-dns")
+        self._attempts = ThreadPoolExecutor(max_workers=FETCH_THREADS, thread_name_prefix="webfetch")
 
     def close(self) -> None:
         self._client.close()
-        self._lookups.shutdown(wait=False, cancel_futures=True)
+        self._attempts.shutdown(wait=False, cancel_futures=True)
 
     def fetch(self, url: str) -> FetchedPage:
         deadline = time.monotonic() + self._timeout  # one budget for every lookup, redirect and the body
+        cutoff = _Cutoff()
+        attempt = self._attempts.submit(self._attempt, url, deadline, cutoff)
+        try:
+            return attempt.result(timeout=self._timeout)
+        except TimeoutError as exc:
+            attempt.cancel()  # if it never started (every thread busy with slow sites)
+            cutoff.cut()  # frees its thread: the read in progress ends
+            raise FetchError("the site took too long to answer") from exc
+
+    def _attempt(self, url: str, deadline: float, cutoff: "_Cutoff") -> FetchedPage:
         current = url
         for _ in range(self._max_redirects + 1):
             target = _check_url(current)
-            address = self._public_address(target, deadline)
+            address = self._public_address(target)
+            extensions: dict[str, Any] = {"trace": cutoff.trace}
+            if target.parts.scheme == "https":
+                extensions["sni_hostname"] = target.host
             try:
                 with self._client.stream(
                     "GET",
                     _url_for_address(target, address),
                     headers={"Host": target.host, "User-Agent": USER_AGENT, "Accept": "text/html,text/plain;q=0.9"},
-                    extensions={"sni_hostname": target.host} if target.parts.scheme == "https" else {},
+                    extensions=extensions,
                     timeout=_time_left(deadline),  # connect, send and each read
                 ) as response:
                     if response.status_code in REDIRECT_CODES and "location" in response.headers:
@@ -161,22 +182,14 @@ class SafeFetcher:
                 raise FetchError(f"{target.host} could not be reached") from exc
         raise FetchError("the site redirected too many times")
 
-    def _public_address(self, target: _Target, deadline: float) -> str:
-        addresses = self._resolve(target, deadline)
+    def _public_address(self, target: _Target) -> str:
+        addresses = self._resolver(target.host, target.port)
         if not addresses:
             raise FetchError(f"{target.host} could not be found")
         if not all(is_public_address(a) for a in addresses):
             raise BlockedAddressError(f"{target.host} points to a private or reserved network address")
         # Prefer IPv4: it's what most hosting egress supports.
         return sorted(addresses, key=lambda a: ipaddress.ip_address(a).version)[0]
-
-    def _resolve(self, target: _Target, deadline: float) -> list[str]:
-        left = _time_left(deadline)
-        lookup = self._lookups.submit(self._resolver, target.host, target.port)
-        try:
-            return lookup.result(timeout=left)
-        except TimeoutError as exc:  # the lookup thread runs on until the system resolver gives up
-            raise FetchError("the site took too long to answer") from exc
 
     def _read_page(self, url: str, response: httpx2.Response, deadline: float) -> FetchedPage:
         if response.status_code >= 400:  # noqa: PLR2004 (HTTP error range)
@@ -196,6 +209,42 @@ class SafeFetcher:
         except (LookupError, ValueError):  # the site sets the charset: it may be unknown, or no text codec (idna)
             text = bytes(body).decode("utf-8", errors="replace")
         return extract_page(url, response.status_code, content_type, text)
+
+
+class _Cutoff:
+    """The sockets one fetch attempt opened, so the caller can shut them down when it stops waiting.
+
+    It holds the socket objects, not their file numbers: shutting down one that was already closed fails harmlessly,
+    where a reused number could belong to someone else's connection.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._sockets: list[socket.socket] = []
+        self._cut = False
+
+    def trace(self, event: str, info: dict[str, Any]) -> None:
+        """httpx's trace hook, called on the attempt's thread as it connects (and again once TLS is up)."""
+        if event not in ("connection.connect_tcp.complete", "connection.start_tls.complete"):
+            return
+        sock = info["return_value"].get_extra_info("socket")
+        with self._lock:
+            self._sockets.append(sock)
+            too_late = self._cut
+        if too_late:
+            _shut(sock)
+
+    def cut(self) -> None:
+        with self._lock:
+            self._cut = True
+            sockets = list(self._sockets)
+        for sock in sockets:
+            _shut(sock)
+
+
+def _shut(sock: socket.socket) -> None:
+    with contextlib.suppress(OSError):  # already closed, or handed over to TLS
+        sock.shutdown(socket.SHUT_RDWR)
 
 
 def _time_left(deadline: float) -> float:

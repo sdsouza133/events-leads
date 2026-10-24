@@ -2,6 +2,7 @@ import socket
 import threading
 import time
 from collections.abc import Callable, Iterator
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 import httpx2
@@ -13,6 +14,7 @@ from app.providers.webfetch import (
     BlockedAddressError,
     FetchError,
     SafeFetcher,
+    _Cutoff,
     extract_page,
     is_public_address,
     pick_followup_links,
@@ -355,6 +357,97 @@ def test_the_body_is_read_within_the_same_deadline() -> None:
 
     with pytest.raises(FetchError, match="took too long"):
         make_fetcher(handler, {"acme.example": [PUBLIC_V4]}, timeout_seconds=0.5).fetch("https://acme.example/")
+
+
+def test_slow_headers_then_a_stalled_body_return_at_the_deadline() -> None:
+    stalled = threading.Event()
+
+    class StalledStream(httpx2.SyncByteStream):
+        def __iter__(self) -> Iterator[bytes]:
+            yield b"<p>a start</p>"
+            stalled.wait(5)  # the site stops sending, without closing the connection
+            yield b"<p>too late</p>"
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        time.sleep(0.15)
+        return httpx2.Response(200, headers={"content-type": "text/html"}, stream=StalledStream())
+
+    fetcher = make_fetcher(handler, {"acme.example": [PUBLIC_V4]}, timeout_seconds=0.3)
+    started = time.monotonic()
+    try:
+        with pytest.raises(FetchError, match="took too long"):
+            fetcher.fetch("https://acme.example/")
+        assert time.monotonic() - started < 0.6  # the deadline, give or take scheduling
+    finally:
+        stalled.set()
+        fetcher.close()
+
+
+def test_the_cutoff_ends_a_read_that_is_waiting_on_the_site() -> None:
+    ours, site = socket.socketpair()
+    received: list[bytes] = []
+    reader = threading.Thread(target=lambda: received.append(ours.recv(1)))
+    cutoff = _Cutoff()
+    try:
+        cutoff.trace("connection.connect_tcp.complete", {"return_value": _Stream(ours)})
+        reader.start()
+        cutoff.cut()
+        reader.join(timeout=2)
+        assert not reader.is_alive()
+        assert received == [b""]  # the read ended instead of waiting for the site
+    finally:
+        ours.close()
+        site.close()
+
+
+def test_a_connection_opened_after_the_cutoff_is_shut_at_once() -> None:
+    ours, site = socket.socketpair()
+    cutoff = _Cutoff()
+    try:
+        cutoff.cut()
+        cutoff.trace("connection.connect_tcp.complete", {"return_value": _Stream(ours)})
+        assert ours.recv(1) == b""
+        cutoff.trace("connection.http11.send_request_headers.started", {})  # other events are ignored
+    finally:
+        ours.close()
+        site.close()
+
+
+def test_httpx_reports_each_new_connection_to_the_cutoff() -> None:
+    """Guards the event names _Cutoff relies on, against a real (local) connection."""
+
+    class Ok(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            self.send_response(200)
+            self.send_header("Content-Length", "2")
+            self.end_headers()
+            self.wfile.write(b"ok")
+
+        def log_message(self, *_args: object) -> None:
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Ok)
+    serving = threading.Thread(target=server.serve_forever, daemon=True)
+    serving.start()
+    cutoff = _Cutoff()
+    try:
+        with httpx2.Client(trust_env=False) as client:
+            response = client.get(f"http://127.0.0.1:{server.server_port}/", extensions={"trace": cutoff.trace})
+        assert response.text == "ok"
+        assert len(cutoff._sockets) == 1
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+class _Stream:
+    """What httpx's trace hook hands over as `return_value`: a network stream that can name its socket."""
+
+    def __init__(self, sock: socket.socket) -> None:
+        self._sock = sock
+
+    def get_extra_info(self, info: str) -> object:
+        return self._sock if info == "socket" else None
 
 
 def test_a_malformed_redirect_is_a_fetch_error() -> None:
