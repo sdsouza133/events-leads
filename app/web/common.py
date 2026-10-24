@@ -91,9 +91,8 @@ def page(
 ) -> HTMLResponse:
     """Render a page. Every page carries the CSRF token its forms post back, set as a cookie the first time."""
     csrf = request.cookies.get(auth.CSRF_COOKIE) or auth.new_secret()
-    response = TEMPLATES.TemplateResponse(
-        request, template, {**context, "csrf": csrf, "csrf_field": auth.CSRF_FIELD}, status_code=status_code
-    )
+    shared = {"csrf": csrf, "csrf_field": auth.CSRF_FIELD, "operator": is_operator(context.get("account"), settings)}
+    response = TEMPLATES.TemplateResponse(request, template, {**context, **shared}, status_code=status_code)
     if request.cookies.get(auth.CSRF_COOKIE) != csrf:
         response.set_cookie(
             auth.CSRF_COOKIE, csrf, httponly=True, secure=secure_cookies(settings), samesite="lax", path="/"

@@ -36,7 +36,7 @@ from app.providers.fakes import FakePostSearch
 from app.providers.registry import build_providers
 from app.providers.types import ProviderError, SearchedPost, SearchRun, SearchStatus
 from app.schemas import ApprovedEvent
-from app.worker import Worker
+from app.worker import PAUSED_RECHECK, Worker
 from tests.factories import make_run
 
 pytestmark = pytest.mark.db
@@ -367,6 +367,18 @@ def test_a_busy_apify_retries_the_job_later_without_using_a_search_attempt(db: S
     [waiting] = run_events(db, run)
     assert (waiting.status, waiting.search_attempts, waiting.search_queries) == (RunEventStatus.PENDING, 0, [])
     assert [e.status for e in spend(db, run)] == [SpendStatus.RELEASED]
+
+
+def test_while_paused_no_search_is_claimed_or_started(db: Session) -> None:
+    clock, search = Clock(), StubSearch()
+    run = approved_run(db)
+    worker(clock, search, pause_new_runs=True).run_once()
+    assert search.started == []
+    [job] = jobs(db, COLLECT_EVENT)
+    assert (job.status, job.attempts, job.run_after) == (JobStatus.QUEUED, 0, NOW + PAUSED_RECHECK)
+    [waiting] = run_events(db, run)  # not "searching": other runs would wait on a search that isn't running
+    assert (waiting.status, waiting.search_attempts) == (RunEventStatus.PENDING, 0)
+    assert spend(db, run) == []
 
 
 def test_the_last_failed_attempt_closes_the_reservation_and_skips_the_event(db: Session) -> None:

@@ -11,7 +11,7 @@ from app.budget import BudgetExceededError
 from app.config import Settings
 from app.models import Run, SpendEntry, SpendStatus
 from app.pipeline.base import JobContext
-from app.pipeline.paid import paid_call, step_key
+from app.pipeline.paid import SpendingPausedError, paid_call, step_key
 from app.providers.registry import build_providers
 from app.providers.types import Answer, ProviderError
 from tests.factories import make_run
@@ -39,6 +39,27 @@ def committed_run(db: Session) -> Run:
 
 def answer(cost: str) -> Answer[str]:
     return Answer("the answer", Decimal(cost))
+
+
+def test_while_paused_nothing_is_reserved_or_called(db: Session) -> None:
+    run = committed_run(db)
+    called: list[str] = []
+
+    def call() -> Answer[str]:
+        called.append("called")
+        return answer("0.07")
+
+    with pytest.raises(SpendingPausedError):
+        paid_call(
+            context(pause_new_runs=True),
+            run_id=run.id,
+            step="analyze_site",
+            provider="claude",
+            estimate=ESTIMATE,
+            call=call,
+        )
+    assert called == []
+    assert spend(db, run) == []
 
 
 def test_a_successful_call_is_started_and_left_for_the_caller_to_settle(db: Session) -> None:

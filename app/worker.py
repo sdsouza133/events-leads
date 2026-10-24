@@ -32,6 +32,7 @@ from app.logging_config import configure_logging
 from app.models import JobStatus
 from app.pipeline.base import Defer, GiveUp, JobContext, JobKind, Payload
 from app.pipeline.jobs import JOBS
+from app.pipeline.paid import SpendingPausedError
 from app.providers.registry import build_providers
 from app.providers.types import ProviderError
 
@@ -39,6 +40,7 @@ log = logging.getLogger(__name__)
 
 MAINTENANCE_EVERY_SECONDS = 60.0
 RESERVATIONS_OPEN_AT_MOST = timedelta(hours=1)
+PAUSED_RECHECK = timedelta(minutes=5)
 
 
 def worker_name() -> str:
@@ -117,11 +119,19 @@ class Worker:
             else:  # released as stale and claimed by another worker, which redoes the work
                 session.rollback()
                 log.warning("job was taken over by another worker; this attempt's writes were dropped", extra=context)
+        except SpendingPausedError:  # PAUSE_NEW_RUNS: the job waits, without using up an attempt
+            session.rollback()
+            self._pause(job_id, context)
         except Exception as exc:  # any failure is recorded on the job, and the worker keeps going
             session.rollback()
             self._fail(job_id, kind, payload, exc, context)
         finally:
             session.close()
+
+    def _pause(self, job_id: int, context: dict[str, Any]) -> None:
+        with session_scope() as session:
+            queue.defer(session, job_id, self.name, PAUSED_RECHECK, now=self.ctx.now())
+        log.info("job paused: PAUSE_NEW_RUNS is set", extra=context)
 
     def _fail(
         self, job_id: int, kind: JobKind, payload: dict[str, Any], exc: Exception, context: dict[str, Any]

@@ -20,7 +20,7 @@ from app.models import Run, RunStatus
 from app.pipeline import runs
 from app.pipeline.base import DONE, Defer, JobContext, Outcome, Payload
 from app.pipeline.keywords import build_queries
-from app.pipeline.paid import paid_call, recover_step
+from app.pipeline.paid import check_not_paused, paid_call, recover_step
 from app.providers.protocols import WebFetcher
 from app.providers.types import FetchedPage, ProviderError
 from app.providers.webfetch import FetchError, pick_followup_links
@@ -56,6 +56,7 @@ def analyze_site(ctx: JobContext, session: Session, payload: Payload) -> Outcome
         return DONE  # gone, canceled, or finished by an earlier attempt
     website, domain = run.website_url, run.domain
     session.commit()  # no transaction stays open while the site and Claude answer
+    check_not_paused(ctx)  # before reading the site, so a pause doesn't have us read it every few minutes
 
     pages, problem = _read_or_explain(ctx.providers.fetcher, website, domain)
     if problem is not None:

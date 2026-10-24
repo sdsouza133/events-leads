@@ -49,10 +49,24 @@ What to do when operating the service. Keep it current: every incident should le
   (5 times an hour per address, counted with the start form). Links last 30 minutes and work once.
 - Previews keep emails instead of sending them: operators read them on `/dev/outbox`.
 
+## The console
+
+`/admin`, for the addresses in `ADMIN_EMAILS`: sign in at `/sign-in-again` and the link opens it. It shows the latest
+runs with their status, spend and internal error, today's spend against `DAILY_CAP_USD`, and the queue with the
+latest failed jobs (their `last_error`).
+
+- **Cancel a run:** its *Cancel* link, then confirm. Nothing new starts for it; a call already under way finishes and
+  its cost is counted. The requester sees that the run stopped. A run canceled before it spent anything doesn't use
+  up the company's free run.
+- **Give a company another run:** *Grant a company another run*, with its website or domain and a note. Each grant is
+  one more run on top of `FREE_RUNS_PER_DOMAIN`, and the company starts it from the start form as usual.
+
 ## Pausing spend immediately
 
-Set `PAUSE_NEW_RUNS=true` on the worker service. Runs already collecting finish their current step and stop; nothing new
-starts. To also stop runs in progress, scale the worker to zero.
+Set `PAUSE_NEW_RUNS=true` on both services, web and worker. The start form takes no new requests, and every job about
+to call Claude, Apify, Apollo or Reoon is put back and checked again every 5 minutes (the log says `job paused`). A
+call already made finishes, and searches already running on Apify are still collected. Unset it and everything carries
+on where it stopped. To stop the job running right now as well, scale the worker to zero.
 
 ## Rotating a secret
 

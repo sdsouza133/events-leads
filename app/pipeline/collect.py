@@ -34,7 +34,7 @@ from app.budget import BudgetExceededError
 from app.models import Event, EventPost, Post, Run, RunEvent, RunEventStatus, RunStatus, SearchCache
 from app.pipeline import runs
 from app.pipeline.base import DONE, Defer, JobContext, Outcome, Payload
-from app.pipeline.paid import paid_call, step_key
+from app.pipeline.paid import check_not_paused, paid_call, step_key
 from app.pipeline.qualify import QUALIFY
 from app.providers.pricing import apify_search_estimate
 from app.providers.types import Answer, ProviderError, SearchedPost, SearchRun, SearchStatus
@@ -157,6 +157,7 @@ def _start(ctx: JobContext, session: Session, run_id: uuid.UUID, event_id: uuid.
         return DONE
     if _searched_by_another_run(session, run_id, event_id, now):
         return Defer(_poll_delay(ctx))  # when it finishes, its searches are in the cache
+    check_not_paused(ctx)  # before claiming the search, which other runs would wait on
     run_event.status = RunEventStatus.SEARCHING  # what other runs wait on
     run_event.search_queries = todo
     run_event.search_started_at = now

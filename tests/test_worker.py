@@ -20,6 +20,7 @@ from app.config import Settings
 from app.db import session_scope
 from app.models import Account, Job, JobStatus, Run, SpendEntry, SpendStatus
 from app.pipeline.base import DONE, Defer, JobContext, JobKind, Outcome, Payload
+from app.pipeline.paid import SpendingPausedError
 from app.providers.registry import build_providers
 from app.providers.types import ProviderError
 from app.worker import Worker, describe
@@ -90,6 +91,26 @@ def test_defer_requeues_the_job_without_using_an_attempt(db: Session) -> None:
     make_worker(lambda _ctx, _session, _payload: Defer(timedelta(minutes=5))).run_once()
     deferred = job(db, job_id)
     assert (deferred.status, deferred.attempts, deferred.run_after) == (JobStatus.QUEUED, 0, NOW + timedelta(minutes=5))
+
+
+def test_a_job_held_by_the_pause_waits_without_using_an_attempt(db: Session) -> None:
+    run = make_run(db)
+    job_id = one_job(db, run=run)
+
+    def handle(ctx: JobContext, session: Session, payload: Payload) -> Outcome:
+        note_on_run("half done")(ctx, session, payload)
+        raise SpendingPausedError
+
+    make_worker(handle).run_once()
+    paused = job(db, job_id)
+    assert (paused.status, paused.attempts, paused.run_after, paused.last_error) == (
+        JobStatus.QUEUED,
+        0,
+        NOW + worker.PAUSED_RECHECK,
+        None,
+    )
+    db.refresh(run)
+    assert run.status_detail is None  # what it wrote before stopping was rolled back
 
 
 def test_a_failure_rolls_back_and_is_retried_later(db: Session) -> None:

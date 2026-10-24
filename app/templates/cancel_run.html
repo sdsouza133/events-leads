@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Cancel the run for {{ run.domain }}{% endblock %}
+{% block main %}
+{% if finished %}
+<h1>The run for {{ run.domain }} has finished</h1>
+<p>It's {{ run.status.replace("_", " ") }}, so there's nothing to cancel. <a href="/admin#runs">Back to the console</a></p>
+{% else %}
+<h1>Cancel the run for {{ run.domain }}?</h1>
+{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+<p>Nothing new starts for it. A step already under way finishes, and what it spends is counted. Its requester sees
+that the run stopped. This can't be undone.</p>
+<p>If it hasn't spent anything yet, the company can start another run; otherwise, grant it one.</p>
+<form method="post" action="/admin/runs/{{ run.id }}/cancel" class="inline">
+  <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
+  <button type="submit">Cancel this run</button>
+  <a href="/admin#runs">Keep it running</a>
+</form>
+{% endif %}
+{% endblock %}

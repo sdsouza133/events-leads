@@ -21,6 +21,16 @@ from app.pipeline.base import JobContext
 from app.providers.types import Answer, ProviderError
 
 
+class SpendingPausedError(Exception):
+    """PAUSE_NEW_RUNS is set, so nothing billed starts. The worker puts the job back to try again later."""
+
+
+def check_not_paused(ctx: JobContext) -> None:
+    """Call before anything billed: Claude and Apify (`paid_call` does), Apollo and Reoon."""
+    if ctx.settings.pause_new_runs:
+        raise SpendingPausedError
+
+
 @dataclass(frozen=True)
 class Paid[T]:
     spend_id: int
@@ -47,11 +57,13 @@ def paid_call[T](
     call: Callable[[], Answer[T]],
     run_cap_usd: Decimal | None = None,
 ) -> Paid[T]:
-    """Make one paid call under the rules above. Raises BudgetExceededError, before any call, when a cap is reached.
+    """Make one paid call under the rules above. Raises BudgetExceededError, before any call, when a cap is reached,
+    and SpendingPausedError while PAUSE_NEW_RUNS is set.
 
     On success the caller must `budget.settle(session, paid.spend_id, paid.answer.cost_usd)` in the transaction that
     stores the answer.
     """
+    check_not_paused(ctx)
     recover_step(ctx, run_id, step)
     with session_scope() as session:
         spend_id = budget.reserve(

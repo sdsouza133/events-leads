@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block title %}Console{% endblock %}
+{% block body_attrs %} class="wide"{% endblock %}
+{% block main %}
+<h1>Console</h1>
+<p class="small">Times are in UTC.</p>
+{% if paused %}
+<p class="notice" role="status">New paid work is paused: <code>PAUSE_NEW_RUNS</code> is set. The start form takes no
+new requests, and jobs about to spend wait until it's unset.</p>
+{% endif %}
+{% if notice %}<p class="notice" role="status">{{ notice }}</p>{% endif %}
+
+{% if errors %}
+<div class="error-summary" role="alert" aria-labelledby="error-summary-title">
+  <h2 id="error-summary-title">Please check the form</h2>
+  <ul>
+    {% for key, message in errors.items() %}
+    <li>{% if key == "form" %}{{ message }}{% else %}<a href="#{{ key }}">{{ message }}</a>{% endif %}</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<h2 id="today">Today, {{ today.day }}</h2>
+<p>Spent {{ today.spent }} of the {{ today.cap }} daily cap, with {{ today.reserved }} held for calls under way.
+{{ today.left }} left.</p>
+
+<h2 id="queue">Queue</h2>
+<p>{{ queue.due }} {{ "job" if queue.due == 1 else "jobs" }} due now, {{ queue.later }} waiting for later,
+{{ queue.running }} running, {{ queue.failed }} failed.</p>
+{% if failed_jobs %}
+<div class="table-wrap" role="region" aria-labelledby="failed-caption" tabindex="0">
+  <table>
+    <caption id="failed-caption">Failed jobs, latest first</caption>
+    <thead>
+      <tr>
+        <th scope="col">When</th>
+        <th scope="col">Job</th>
+        <th scope="col">Run</th>
+        <th scope="col">Tries</th>
+        <th scope="col">Error</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for job in failed_jobs %}
+      <tr>
+        <td class="nowrap">{{ job.when }}</td>
+        <td>{{ job.kind }}</td>
+        <td>{% if job.run_id %}<a href="/runs/{{ job.run_id }}">Open<span class="visually-hidden"> the run for this job</span></a>{% endif %}</td>
+        <td>{{ job.attempts }}</td>
+        <td>{{ job.error }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<h2 id="runs">Runs</h2>
+{% if runs %}
+<div class="table-wrap" role="region" aria-labelledby="runs-caption" tabindex="0">
+  <table>
+    <caption id="runs-caption">The latest {{ runs | length }} runs, newest first</caption>
+    <thead>
+      <tr>
+        <th scope="col">Started</th>
+        <th scope="col">Company</th>
+        <th scope="col">Status</th>
+        <th scope="col">Spent</th>
+        <th scope="col">Leads</th>
+        <th scope="col"><span class="visually-hidden">Actions</span></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for run in runs %}
+      <tr>
+        <td class="nowrap">{{ run.created }}</td>
+        <td><a href="/runs/{{ run.id }}">{{ run.domain }}</a><br><span class="small">{{ run.requester }}</span></td>
+        <td>{{ run.status }}{% if run.detail %}<br><span class="small">{{ run.detail }}</span>{% endif %}
+          {%- if run.error %}<br><span class="small">Error: {{ run.error }}</span>{% endif %}</td>
+        <td>{{ run.spent }}{% if run.credits %}<br><span class="small">{{ run.credits }} Apollo credits</span>{% endif %}</td>
+        <td>{{ run.leads }}</td>
+        <td>{% if run.open %}<a href="/admin/runs/{{ run.id }}/cancel">Cancel<span class="visually-hidden"> the run for {{ run.domain }}</span></a>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p>No runs yet.</p>
+{% endif %}
+
+<h2 id="grants">Grant a company another run</h2>
+<p>Each company gets {{ free_runs }} free {{ "run" if free_runs == 1 else "runs" }}. Each grant lets it start one
+more.</p>
+<form method="post" action="/admin/grants" novalidate>
+  <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
+  <div class="field">
+    <label for="company">The company's website or domain</label>
+    {% if errors.company %}<p class="error" id="company-error">{{ errors.company }}</p>{% endif %}
+    <input type="text" id="company" name="company" spellcheck="false" value="{{ form.company or '' }}"
+           {% if errors.company %}aria-invalid="true" aria-describedby="company-error"{% endif %}>
+  </div>
+  <div class="field">
+    <label for="note">Note (optional)</label>
+    <p class="hint" id="note-hint">Why, for example: asked for a second list in Q4.</p>
+    {% if errors.note %}<p class="error" id="note-error">{{ errors.note }}</p>{% endif %}
+    <input type="text" id="note" name="note" value="{{ form.note or '' }}"
+           aria-describedby="note-hint{% if errors.note %} note-error{% endif %}"{% if errors.note %} aria-invalid="true"{% endif %}>
+  </div>
+  <button type="submit">Grant another run</button>
+</form>
+{% if grants %}
+<div class="table-wrap" role="region" aria-labelledby="grants-caption" tabindex="0">
+  <table>
+    <caption id="grants-caption">Recent grants</caption>
+    <thead>
+      <tr>
+        <th scope="col">When</th>
+        <th scope="col">Company</th>
+        <th scope="col">By</th>
+        <th scope="col">Note</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for grant in grants %}
+      <tr>
+        <td class="nowrap">{{ grant.when }}</td>
+        <td>{{ grant.domain }}</td>
+        <td>{{ grant.by }}</td>
+        <td>{{ grant.note }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

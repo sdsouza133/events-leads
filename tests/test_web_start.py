@@ -17,7 +17,7 @@ from app import auth
 from app.config import Settings, get_settings
 from app.db import get_sessionmaker
 from app.main import create_app
-from app.models import Account, Job, JobStatus, LoginToken, OutboxEmail, Run, RunStatus, UserSession
+from app.models import Account, Job, JobStatus, LoginToken, OutboxEmail, Run, RunGrant, RunStatus, UserSession
 from app.pipeline.analyze import ANALYZE_SITE
 from app.pipeline.base import JobContext
 from app.pipeline.jobs import JOBS
@@ -177,6 +177,26 @@ def test_a_run_that_stopped_before_spending_anything_does_not_use_the_free_run(c
     make_run(db, domain="acmewidgets.com", status=RunStatus.FAILED)  # the website couldn't be read
     db.commit()
     assert "Check your email" in ask(client)
+
+
+def test_a_run_an_operator_granted_lets_the_company_start_another(client: TestClient, db: Session) -> None:
+    make_run(db, domain="acmewidgets.com", status=RunStatus.READY)
+    db.add(RunGrant(domain="acmewidgets.com", note="a second list"))
+    db.commit()
+    assert "Check your email" in ask(client)
+
+
+def test_while_new_runs_are_paused_the_form_takes_no_requests(db: Session) -> None:
+    app = create_app()
+    app.dependency_overrides[get_settings] = lambda: Settings(pause_new_runs=True)
+    with TestClient(app) as client:
+        page = client.get("/")
+        assert "We're not taking new requests right now" in page.text
+        assert 'action="/start"' not in page.text
+        response = client.post("/start", data={"website": "acmewidgets.com", "email": EMAIL, "csrf": csrf(client)})
+    assert response.status_code == 503
+    assert runs(db) == []
+    assert jobs(db, SEND_SIGN_IN) == []
 
 
 # ----------------------------------------------------------------------------------------------- the link
@@ -373,6 +393,26 @@ def test_someone_whose_runs_were_deleted_signs_in_to_the_start_page(
     client.post("/sign-in-again", data={"email": EMAIL, "csrf": csrf(client)})
     send_links(settings)
     assert sign_in(client, token_sent_to(db)) == "/"
+
+
+def test_an_operator_s_link_opens_the_console(client: TestClient, db: Session, settings: Settings) -> None:
+    client.post("/sign-in-again", data={"email": "Ops@B2BOps.com", "csrf": csrf(client)})
+    db.expire_all()
+    account = db.scalar(select(Account).where(Account.email == "ops@b2bops.com"))
+    assert account is not None  # made on their first sign-in: operators don't ask for a run first
+    send_links(settings)
+    assert sign_in(client, token_sent_to(db, "ops@b2bops.com")) == "/admin"
+    assert client.get("/admin").status_code == 200
+
+
+def test_an_operator_with_a_run_of_their_own_still_lands_on_the_console(
+    client: TestClient, db: Session, settings: Settings
+) -> None:
+    signed_in_run(client, db, settings, email="ops@b2bops.com")
+    client.post("/sign-out", data={"csrf": csrf(client)})
+    client.post("/sign-in-again", data={"email": "ops@b2bops.com", "csrf": csrf(client)})
+    send_links(settings)
+    assert sign_in(client, token_sent_to(db, "ops@b2bops.com")) == "/admin"
 
 
 def test_a_new_link_needs_the_page_s_token_and_an_address(client: TestClient, db: Session) -> None:

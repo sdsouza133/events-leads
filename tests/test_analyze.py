@@ -23,7 +23,7 @@ from app.providers.registry import build_providers
 from app.providers.types import Answer, FetchedPage, ProviderError
 from app.providers.webfetch import FetchError
 from app.schemas import MAX_QUERIES, EventSuggestion, SiteAnalysis
-from app.worker import Worker
+from app.worker import PAUSED_RECHECK, Worker
 from tests.factories import make_run
 
 pytestmark = pytest.mark.db
@@ -131,6 +131,18 @@ def test_find_events_may_use_whatever_is_left_of_the_analysis_budget(db: Session
     first, second = spend(db, fresh(db, run))
     assert first.estimated_usd == analyze.ANALYZE_SITE_ESTIMATE
     assert second.estimated_usd == Settings().analysis_budget_usd - Decimal("0.05")
+
+
+def test_while_paused_the_site_is_not_read_and_nothing_is_spent(db: Session) -> None:
+    run = start(db)
+    fetcher = FakeFetcher()
+    worker(fetcher=fetcher, pause_new_runs=True).run_once()
+    assert fetcher.fetched == []
+    [job] = db.scalars(select(Job).where(Job.kind == ANALYZE_SITE)).all()
+    db.refresh(job)
+    assert (job.status, job.attempts, job.run_after) == (JobStatus.QUEUED, 0, NOW + PAUSED_RECHECK)
+    assert fresh(db, run).status == RunStatus.ANALYZING
+    assert spend(db, run) == []
 
 
 def test_an_unreadable_site_fails_the_run_with_a_reason_and_spends_nothing(db: Session) -> None:

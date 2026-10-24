@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     # The part of a run spent before approval. At least what analyze_site reserves, or no run could start.
     analysis_budget_usd: Decimal = Field(default=Decimal("0.50"), ge=Decimal("0.15"))
     daily_cap_usd: Decimal = Field(default=Decimal("20.00"), gt=0)
+    # Stops new paid work (RUNBOOK, "Pausing spend"): the start form takes no new runs, and the worker holds every job
+    # about to make a paid call until it's unset. A call already made finishes.
+    pause_new_runs: bool = False
 
     # The background worker (ADR 0002).
     worker_poll_seconds: float = Field(default=2.0, gt=0, le=60)
