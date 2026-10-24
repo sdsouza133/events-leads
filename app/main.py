@@ -7,9 +7,11 @@ import uuid
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.datastructures import Headers
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app import __version__, web
 from app.config import get_settings
@@ -38,6 +40,41 @@ HSTS = "max-age=31536000; includeSubDomains"
 # can't bloat or pollute the logs.
 REQUEST_ID = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 
+# The largest body any page or the operator API takes. The biggest real ones, the plan form and an operator's answer
+# about 25 posts, are around ten kilobytes. Starlette reads a whole body into memory, so a bigger one is refused first.
+MAX_BODY_BYTES = 256 * 1024
+TOO_LARGE = "That request is too large."
+
+
+class LimitBody:
+    """Refuses a request body over `max_bytes` with 413: up front when its Content-Length says so, and while it
+    arrives otherwise (a chunked body declares no length)."""
+
+    def __init__(self, app: ASGIApp, max_bytes: int) -> None:
+        self.app = app
+        self.max_bytes = max_bytes
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        declared = Headers(scope=scope).get("content-length", "")
+        if declared.isdigit() and int(declared) > self.max_bytes:
+            await PlainTextResponse(TOO_LARGE, status_code=413)(scope, receive, send)
+            return
+        received = 0
+
+        async def counted() -> Message:
+            nonlocal received
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > self.max_bytes:  # FastAPI answers this where the body is being read
+                    raise HTTPException(status_code=413, detail=TOO_LARGE)
+            return message
+
+        await self.app(scope, counted, send)
+
 
 def request_id_for(request: Request) -> str:
     supplied = request.headers.get("x-request-id", "")
@@ -50,6 +87,7 @@ def create_app() -> FastAPI:
     # No interactive API docs: the product is server-rendered pages, not a public API, and the docs page would need
     # a looser Content-Security-Policy.
     app = FastAPI(title="events-leads", version=__version__, docs_url=None, redoc_url=None, openapi_url=None)
+    app.add_middleware(LimitBody, max_bytes=MAX_BODY_BYTES)  # inside request_context, which adds the headers
 
     @app.middleware("http")
     async def request_context(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
