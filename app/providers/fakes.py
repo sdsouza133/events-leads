@@ -202,17 +202,18 @@ class FakePostSearch:
     failing_queries: set[str] = field(default_factory=set)
     _polls: dict[str, int] = field(default_factory=dict)
     _queries: dict[str, list[str]] = field(default_factory=dict)
-    _limits: dict[str, tuple[int, Decimal]] = field(default_factory=dict)
+    _limits: dict[str, tuple[int, int]] = field(default_factory=dict)  # posts per query, posts in total
 
     def start(self, queries: list[str], *, max_posts_per_query: int, max_charge_usd: Decimal) -> SearchRun:
         run_id = "fake-" + hashlib.sha256("|".join(queries).encode()).hexdigest()[:20]
         self._polls[run_id] = 0
         self._queries[run_id] = list(queries)
-        self._limits[run_id] = (min(self.posts_per_query, max_posts_per_query), max_charge_usd)
+        # Like the real search, it stops once it has charged the cap: each post costs FAKE_POST_PRICE_USD.
+        self._limits[run_id] = (
+            min(self.posts_per_query, max_posts_per_query),
+            int(max_charge_usd / FAKE_POST_PRICE_USD),
+        )
         return SearchRun(id=run_id, status=SearchStatus.RUNNING)
-
-    def _limit(self, run_id: str) -> tuple[int, Decimal]:
-        return self._limits.get(run_id, (self.posts_per_query, Decimal("Infinity")))
 
     def get(self, run_id: str) -> SearchRun:
         queries = self._queries.get(run_id, [])
@@ -221,17 +222,20 @@ class FakePostSearch:
         self._polls[run_id] = self._polls.get(run_id, 0) + 1
         if self._polls[run_id] < self.polls_until_done:
             return SearchRun(id=run_id, status=SearchStatus.RUNNING)
-        per_query, max_charge = self._limit(run_id)
-        cost = min(FAKE_POST_PRICE_USD * per_query * max(len(queries), 1), max_charge)
+        cost = FAKE_POST_PRICE_USD * len(self._found(run_id))
         return SearchRun(id=run_id, status=SearchStatus.SUCCEEDED, dataset_id=run_id, cost_usd=cost)
 
     def posts(self, run: SearchRun) -> list[SearchedPost]:
-        per_query, _ = self._limit(run.id)
-        out: list[SearchedPost] = []
-        for query in self._queries.get(run.id, [run.id]):
-            event = _event_in(query)
-            out.extend(_fake_post(event, query, i) for i in range(per_query))
-        return out
+        return self._found(run.id)
+
+    def _found(self, run_id: str) -> list[SearchedPost]:
+        per_query, in_total = self._limits.get(run_id, (self.posts_per_query, None))
+        found = [
+            _fake_post(_event_in(query), query, i)
+            for query in self._queries.get(run_id, [run_id])
+            for i in range(per_query)
+        ]
+        return found[:in_total]
 
 
 def _fake_post(event: str, query: str, index: int) -> SearchedPost:

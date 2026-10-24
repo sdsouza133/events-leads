@@ -107,7 +107,7 @@ def test_fake_search_respects_the_post_and_spend_caps() -> None:
     search = FakePostSearch(posts_per_query=9)
     run = search.start(['"Pipeline Week"', "#PipelineWeek"], max_posts_per_query=3, max_charge_usd=Decimal("0.01"))
     done = search.get(run.id)
-    assert len(search.posts(done)) == 6
+    assert len(search.posts(done)) == 5  # 3 per query, but $0.01 pays for 5
     assert done.cost_usd == Decimal("0.01")
 
 
