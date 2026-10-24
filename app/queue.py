@@ -6,8 +6,13 @@ The life of a job:
 2. A worker calls `claim` and commits straight away. `FOR UPDATE SKIP LOCKED` means two workers never get the same
    job; the job is now `running` and its attempt is counted.
 3. The worker does the work, then calls `complete`, `fail` (retry later with backoff, or give up), or `defer` (not
-   ready yet, try again later without using up an attempt).
+   ready yet, try again later without using up an attempt), in the same transaction as the job's own writes.
 4. If the worker dies, the job stays `running`; `release_stale` puts it back in the queue after a timeout.
+
+A worker that was only slow can come back after its job was released and claimed by another. So `complete`, `fail`
+and `defer` change the job only while the calling worker still holds it, and report whether it did. When they report
+False the caller must roll back: the job belongs to another worker now, which redoes the work. Worker names must be
+unique per process.
 
 Handlers must be idempotent: after a crash, the same job can run again.
 """
@@ -86,32 +91,45 @@ def claim(session: Session, worker: str, *, kinds: list[str] | None = None, now:
     return job
 
 
-def _locked(session: Session, job_id: int) -> Job:
+def _held(session: Session, job_id: int, worker: str) -> Job | None:
+    """The job, row-locked, if `worker` still holds it; None if it was released as stale (and maybe re-claimed)."""
     job = session.get(Job, job_id, with_for_update=True, populate_existing=True)
     if job is None:
         raise LookupError(f"job {job_id} does not exist")
+    if job.status != JobStatus.RUNNING or job.locked_by != worker:
+        return None
     return job
 
 
-def complete(session: Session, job_id: int) -> None:
-    job = _locked(session, job_id)
+def complete(session: Session, job_id: int, worker: str) -> bool:
+    """Mark the job done. False: `worker` no longer holds it (roll back)."""
+    job = _held(session, job_id, worker)
+    if job is None:
+        return False
     job.status = JobStatus.DONE
     job.locked_by = None
     job.locked_at = None
+    return True
 
 
 def fail(
     session: Session,
     job_id: int,
+    worker: str,
     error: str,
     *,
     retryable: bool = True,
     now: datetime | None = None,
     jitter: random.Random | None = None,
-) -> JobStatus:
-    """Record a failure. Retries with backoff while attempts remain, otherwise marks the job failed for good."""
+) -> JobStatus | None:
+    """Record a failure. Retries with backoff while attempts remain, otherwise marks the job failed for good.
+
+    Returns the job's new status, or None when `worker` no longer holds it (roll back).
+    """
     now = now or utcnow()
-    job = _locked(session, job_id)
+    job = _held(session, job_id, worker)
+    if job is None:
+        return None
     job.last_error = error[:MAX_ERROR_LENGTH]
     job.locked_by = None
     job.locked_at = None
@@ -123,14 +141,20 @@ def fail(
     return job.status
 
 
-def defer(session: Session, job_id: int, delay: timedelta, *, now: datetime | None = None) -> None:
-    """Not ready yet (an Apify run still going, a manual AI answer not in): check again later, attempt not counted."""
-    job = _locked(session, job_id)
+def defer(session: Session, job_id: int, worker: str, delay: timedelta, *, now: datetime | None = None) -> bool:
+    """Not ready yet (an Apify run still going, a manual AI answer not in): check again later, attempt not counted.
+
+    False: `worker` no longer holds the job (roll back).
+    """
+    job = _held(session, job_id, worker)
+    if job is None:
+        return False
     job.status = JobStatus.QUEUED
     job.run_after = (now or utcnow()) + delay
     job.attempts = max(job.attempts - 1, 0)
     job.locked_by = None
     job.locked_at = None
+    return True
 
 
 def release_stale(session: Session, older_than: timedelta, *, now: datetime | None = None) -> int:

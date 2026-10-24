@@ -72,12 +72,15 @@ def alembic_config() -> Config:
 @pytest.fixture(scope="session")
 def migrated() -> None:
     """The schema at the latest migration, built once per test session."""
+    require_a_test_database(get_engine().url.database)
     command.upgrade(alembic_config(), "head")
 
 
 def truncate_all_tables() -> None:
+    engine = get_engine()
+    require_a_test_database(engine.url.database)
     tables = ", ".join(table.name for table in Base.metadata.sorted_tables)
-    with get_engine().begin() as conn:
+    with engine.begin() as conn:
         conn.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
 
 
