@@ -165,6 +165,15 @@ def test_a_dropped_connection_leaves_the_cost_unknown() -> None:
     assert exc.value.cost_usd is None  # Claude may have answered and billed before the connection dropped
 
 
+def test_an_answer_that_isnt_json_is_retried_with_its_cost_unknown() -> None:
+    page = httpx2.Response(200, headers={"content-type": "text/html"}, text="<html>502 Bad Gateway</html>")
+    llm, _ = make_llm(lambda _body, _i: page)  # e.g. a proxy's error page sent with a 200
+    with pytest.raises(ProviderError, match="couldn't read") as exc:
+        llm.analyze_site([PAGE])
+    assert exc.value.retryable
+    assert exc.value.cost_usd is None
+
+
 def test_an_answer_cut_off_by_max_tokens_is_reported() -> None:
     llm, _ = make_llm(lambda _body, _i: message([{"type": "text", "text": '{"company_na'}], stop="max_tokens"))
     with pytest.raises(ProviderError, match="cut off"):

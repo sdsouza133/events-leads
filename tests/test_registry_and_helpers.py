@@ -38,8 +38,9 @@ def test_real_providers_with_keys() -> None:
     assert isinstance(with_mail.mailer, ResendMailer)
 
 
-def test_a_blank_key_counts_as_missing(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "")  # e.g. a CI secret or Railway variable that was never filled in
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_a_blank_key_counts_as_missing(monkeypatch: pytest.MonkeyPatch, blank: str) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", blank)  # e.g. a CI secret or Railway variable that was never filled in
     with pytest.raises(ProviderConfigError, match=r"needs ANTHROPIC_API_KEY$"):
         build_providers(Settings(providers="real", apify_token="b", apollo_api_key="c"))
 
