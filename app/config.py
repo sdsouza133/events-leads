@@ -78,7 +78,7 @@ class Settings(BaseSettings):
     analyze_effort: Effort = "medium"
     classify_effort: Effort = "low"
     # Web searches for one event research, plus at most one Claude asked for just as a long turn paused.
-    max_web_searches: int = Field(default=6, ge=1, le=20)
+    max_web_searches: int = Field(default=4, ge=1, le=20)  # each search's results are most of a plan's cost
     llm_fallbacks: bool = True
     apify_token: SecretStr | None = None
     apify_actor: str = "harvestapi~linkedin-post-search"

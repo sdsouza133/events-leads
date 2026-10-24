@@ -15,10 +15,10 @@ def sign_in_email(*, to: str, base_url: str, token: str, domain: str | None, min
     """The one-time sign-in link (ADR 0004). Its key comes from the token, so a retry that makes a new link sends a
     new email rather than being refused as a different email with the same key."""
     link = f"{base_url.rstrip('/')}/sign-in?token={token}"
-    purpose = f"see your list for {domain}" if domain else "continue"
+    what = f"your free list for {domain}" if domain else "Event Leads"
     body = (
-        f"Use this link to sign in and {purpose}:\n{link}\n\nIt works once, within {minutes} minutes. "
-        "If you didn't ask for it, you can ignore this email."
+        f"Here's your link to {what}:\n{link}\n\nIt works once, for {minutes} minutes. "
+        "Didn't ask for it? Just ignore this email."
     )
     return OutgoingEmail(
         to=to,
@@ -35,17 +35,18 @@ def results_email(
     link = run_url(base_url, run_id)
     where = together(events) or "your events"
     if leads:
-        people = "1 person" if leads == 1 else f"{leads} people"
-        subject = "Your event leads are ready"
+        people = "1 lead" if leads == 1 else f"{leads} leads"
+        subject = f"Your list is ready: {people}"
         body = (
-            f"We found {people} who went to, or are going to, {where}, who match your ICP and have a verified work "
-            f"email.\n\nSee the list and download it as a CSV:\n{link}\n\nThe list is available for {days} days."
+            f"Your list is ready: {people} from {where}. Each one is speaking at, exhibiting at, going to or went "
+            f"to one of them, fits who you sell to, and has a verified work email.\n\n"
+            f"See it and download the CSV:\n{link}\n\nIt's yours for {days} days."
         )
     else:
-        subject = "Your event leads search has finished"
+        subject = "Your Event Leads search is done"
         body = (
-            f"We read the LinkedIn posts about {where}, but found nobody who matches your ICP and has a verified "
-            f"work email.\n\nThe details are here:\n{link}"
+            f"We read the LinkedIn posts about {where}, but didn't find anyone there who fits who you sell to and "
+            f"has a verified work email.\n\nThe details are here:\n{link}"
         )
     return OutgoingEmail(to=to, subject=subject, text=f"Hi,\n\n{body}\n\nEvent Leads\n", key=f"results:{run_id}")
 
