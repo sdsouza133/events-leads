@@ -21,10 +21,18 @@ from app.db import database_is_reachable, get_engine, get_sessionmaker
 Settings.model_config["env_file"] = None
 
 
+def require_a_test_database(name: str | None) -> None:
+    """Database tests create, empty and drop tables. Refuse to touch a database not named like one made for tests,
+    so an exported DATABASE_URL (staging, production) can't be wiped by running pytest."""
+    if not (name or "").endswith("_test"):
+        raise pytest.UsageError(f"refusing to run database tests against {name!r}: its name must end in _test")
+
+
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     if not any(item.get_closest_marker("db") for item in items):
         return
     if database_is_reachable():
+        require_a_test_database(get_engine().url.database)
         return
     if os.environ.get("REQUIRE_DB") == "1":
         raise pytest.UsageError("REQUIRE_DB=1 but the database at DATABASE_URL is not reachable")
