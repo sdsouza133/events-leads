@@ -213,7 +213,13 @@ def _poll(ctx: JobContext, session: Session, run_id: uuid.UUID, event_id: uuid.U
     if found.status == SearchStatus.FAILED:
         reason = f"the search failed: {found.message or 'no reason given'}"
         return _search_failed(ctx, session, run_id, event_id, reason=reason, search=search, cost=found.cost_usd)
-    posts = ctx.providers.search.posts(found)  # if this fails, the next attempt polls again and refetches them
+    try:
+        posts = ctx.providers.search.posts(found)
+    except ProviderError as exc:
+        if exc.retryable:
+            raise  # the next attempt polls again and refetches them
+        reason = f"the search's posts couldn't be read: {exc}"
+        return _search_failed(ctx, session, run_id, event_id, reason=reason, search=search, cost=found.cost_usd)
     return _store(ctx, session, run_id, event_id, search=search, found=found, posts=posts)
 
 

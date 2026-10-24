@@ -546,6 +546,28 @@ def test_a_search_apify_lost_track_of_is_counted_in_full_and_tried_again(db: Ses
     assert run_events(db, run)[0].status == RunEventStatus.DONE
 
 
+def test_a_search_whose_posts_apify_refuses_to_hand_over_is_paid_for_and_tried_again(db: Session) -> None:
+    @dataclass
+    class Unreadable(StubSearch):
+        refused: list[SearchRun] = field(default_factory=list)
+
+        def posts(self, run: SearchRun) -> list[SearchedPost]:
+            if not self.refused:
+                self.refused.append(run)
+                raise ProviderError("Apify refused the request (403)", retryable=False)
+            return super().posts(run)
+
+    clock, search = Clock(), Unreadable()
+    run = approved_run(db)
+    run_jobs(db, worker(clock, search), clock)
+    assert len(search.started) == 2
+    first, second = spend(db, run)
+    assert (first.status, first.actual_usd) == (SpendStatus.SETTLED, search.refused[0].cost_usd)  # what it charged
+    assert second.status == SpendStatus.SETTLED
+    [done] = run_events(db, run)
+    assert (done.status, done.search_attempts, done.error) == (RunEventStatus.DONE, 2, None)
+
+
 def test_a_job_for_an_event_already_collected_does_nothing(db: Session) -> None:
     clock, search = Clock(), StubSearch()
     run = approved_run(db)
