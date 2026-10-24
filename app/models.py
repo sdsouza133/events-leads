@@ -178,7 +178,7 @@ class Event(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     key: Mapped[str] = mapped_column(String(200), unique=True, comment="Normalized name plus year")
     name: Mapped[str] = mapped_column(String(300))
-    short_name: Mapped[str | None] = mapped_column(String(100))
+    short_name: Mapped[str | None] = mapped_column(String(120))  # as long as the schemas allow (ShortText)
     hashtags: Mapped[list[Any]] = mapped_column(default=list, server_default=text("'[]'::jsonb"))
     start_date: Mapped[date | None] = mapped_column(Date)
     end_date: Mapped[date | None] = mapped_column(Date)

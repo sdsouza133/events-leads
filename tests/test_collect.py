@@ -167,6 +167,13 @@ def test_events_already_known_are_shared_between_runs(db: Session) -> None:
     assert db.scalar(select(func.count()).select_from(Event)) == 1
 
 
+def test_every_field_the_schema_accepts_fits_the_events_table(db: Session) -> None:
+    longest = "x" * 120  # ShortText's limit, which a suggestion or the requester's edit can reach
+    approved_run(db, event(longest, short_name=longest, location=longest, hashtags=[longest]))
+    stored = db.scalars(select(Event)).one()
+    assert (stored.name, stored.short_name, stored.location) == (longest, longest, longest)
+
+
 def test_event_keys_ignore_case_punctuation_and_a_repeated_year() -> None:
     start = datetime(2026, 9, 9, tzinfo=UTC).date()
     assert event_key("SaaStr Annual", start) == "saastr-annual-2026"
