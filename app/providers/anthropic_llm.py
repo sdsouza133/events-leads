@@ -253,11 +253,10 @@ class AnthropicLlm:
         cost = Decimal(0)
         # The search limit is for the whole research, but max_uses caps one request, and it has to stay the same on
         # every part: a changed tool definition invalidates the thinking in the paused turn (a 400 where the API
-        # enforces that). So a part that starts with searches left may use up to max_uses again. Once they're used
-        # up, tool_choice (which that check leaves out) has Claude finish the turn, writing up what it found, without
-        # searching again.
-        searches_left = self._max_web_searches
-        for _ in range(MAX_PAUSE_CONTINUATIONS + 1):
+        # enforces that). So a turn that pauses is only finished: tool_choice none (which that check leaves out) has
+        # Claude write up what it found without searching again. A search it asked for just as the turn paused still
+        # runs at the start of the next part, so the research makes at most one search more than the limit.
+        for part in range(MAX_PAUSE_CONTINUATIONS + 1):
             try:
                 response, call_cost = self._call(
                     model=self._analyze_model,
@@ -266,18 +265,17 @@ class AnthropicLlm:
                     system=RESEARCH_SYSTEM,
                     messages=messages,
                     tools=[{**WEB_SEARCH, "max_uses": self._max_web_searches}],
-                    tool_choice=None if searches_left > 0 else {"type": "none"},
+                    tool_choice=None if part == 0 else {"type": "none"},
                     timeout=300.0,
                 )
             except ProviderError as exc:
                 raise _plus(exc, cost) from exc  # the parts before a pause were billed too
             cost += call_cost
             _collect(response.content, notes, results)
-            searches_left -= _searches(response)
             if response.stop_reason != "pause_turn":
                 break
             # A long server-tool turn paused: send it back as-is, after the parts already sent (consecutive
-            # assistant messages form one turn), and let Claude carry on.
+            # assistant messages form one turn), for Claude to finish.
             messages = [*messages, {"role": "assistant", "content": response.content}]
         return "\n".join(notes), results, cost
 
@@ -350,12 +348,6 @@ def _parsed[T: BaseModel](response: Any, shape: type[T], cost: Decimal) -> T:
     if not isinstance(value, shape):
         raise ProviderError("Claude returned no structured answer", retryable=True, cost_usd=cost)
     return value
-
-
-def _searches(response: Any) -> int:
-    """The web searches a response was billed for."""
-    server_tools = getattr(getattr(response, "usage", None), "server_tool_use", None)
-    return int(getattr(server_tools, "web_search_requests", 0) or 0)
 
 
 def _billed(body: dict[str, Any]) -> Decimal:

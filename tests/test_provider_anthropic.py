@@ -308,17 +308,16 @@ def test_a_paused_search_turn_is_continued() -> None:
     assert len(api.requests) == 3
 
 
-def test_out_of_searches_a_paused_turn_is_finished_without_searching() -> None:
+def test_a_paused_turn_is_finished_without_searching_again() -> None:
     tools = [{"type": "web_search_20260209", "name": "web_search", "max_uses": 6}]
     pending = {"type": "server_tool_use", "id": "srvtoolu_2", "name": "web_search", "input": {"query": "revops"}}
 
     def responder(body: dict[str, Any], i: int) -> dict[str, Any]:
         if i == 0:
-            return message(SEARCH_TURN[:2], stop="pause_turn", server_tool_use={"web_search_requests": 4})
-        if i == 1:  # 2 of the 6 left: Claude carries on as it was
             assert "tool_choice" not in body
-            return message([pending], stop="pause_turn", server_tool_use={"web_search_requests": 2})
-        if i == 2:  # none left: the paused turn goes back as-is, and Claude writes up what it found
+            paused = [*SEARCH_TURN[:2], pending]  # 2 of the 6 searches used, and a third asked for
+            return message(paused, stop="pause_turn", server_tool_use={"web_search_requests": 2})
+        if i == 1:  # searches left or not, the paused turn goes back as-is, and Claude writes up what it found
             assert body["tool_choice"] == {"type": "none"}
             assert body["messages"][-1]["content"][-1]["id"] == "srvtoolu_2"
             return message([SEARCH_TURN[2]])
@@ -327,9 +326,9 @@ def test_out_of_searches_a_paused_turn_is_finished_without_searching() -> None:
 
     llm, api = make_llm(responder)
     assert [e.name for e in llm.find_events(analysis(), today=TODAY).value] == ["Pipeline Week"]
-    assert len(api.requests) == 4
+    assert len(api.requests) == 3
     # The same tools on every part: a changed definition would invalidate the thinking in the paused turn.
-    assert [request["tools"] for request in api.requests[:3]] == [tools] * 3
+    assert [request["tools"] for request in api.requests[:2]] == [tools] * 2
 
 
 def test_every_paused_part_is_sent_back_when_a_turn_pauses_twice() -> None:
