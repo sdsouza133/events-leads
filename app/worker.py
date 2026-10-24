@@ -5,9 +5,11 @@ keeps its claim fresh, so `release_stale` hands a job to another worker only whe
 Between jobs the worker does the housekeeping: it puts back jobs whose worker died and closes the spend reservations
 such workers left open.
 
-SIGTERM (a redeploy) and SIGINT stop the worker after the job it is running.
+SIGTERM (a redeploy) and SIGINT stop the worker after the job it is running, which starts no new paid call meanwhile:
+a job about to make one is put back for the next worker.
 """
 
+import dataclasses
 import logging
 import os
 import random
@@ -32,6 +34,7 @@ from app.logging_config import configure_logging
 from app.models import JobStatus
 from app.pipeline.base import Defer, GiveUp, JobContext, JobKind, Payload
 from app.pipeline.jobs import JOBS
+from app.pipeline.paid import SpendingPausedError
 from app.providers.registry import build_providers
 from app.providers.types import ProviderError
 
@@ -64,10 +67,10 @@ def describe(exc: BaseException) -> str:
 
 class Worker:
     def __init__(self, ctx: JobContext, kinds: Mapping[str, JobKind], *, name: str | None = None) -> None:
-        self.ctx = ctx
+        self._stop = threading.Event()
+        self.ctx = dataclasses.replace(ctx, stopping=self._stop.is_set)  # a stopping worker starts no paid call
         self.kinds = dict(kinds)
         self.name = name or worker_name()
-        self._stop = threading.Event()
         self._last_maintenance: float | None = None
 
     def stop(self) -> None:
@@ -117,11 +120,19 @@ class Worker:
             else:  # released as stale and claimed by another worker, which redoes the work
                 session.rollback()
                 log.warning("job was taken over by another worker; this attempt's writes were dropped", extra=context)
+        except SpendingPausedError as exc:  # nothing billed may start now: the job waits, attempt not used up
+            session.rollback()
+            self._pause(job_id, exc, context)
         except Exception as exc:  # any failure is recorded on the job, and the worker keeps going
             session.rollback()
             self._fail(job_id, kind, payload, exc, context)
         finally:
             session.close()
+
+    def _pause(self, job_id: int, exc: SpendingPausedError, context: dict[str, Any]) -> None:
+        with session_scope() as session:
+            queue.defer(session, job_id, self.name, exc.retry_after, now=self.ctx.now())
+        log.info("job paused", extra={**context, "reason": str(exc)})
 
     def _fail(
         self, job_id: int, kind: JobKind, payload: dict[str, Any], exc: Exception, context: dict[str, Any]

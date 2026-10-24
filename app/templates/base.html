@@ -7,12 +7,13 @@
   <title>{% block title %}Event Leads{% endblock %} · Event Leads</title>
   <link rel="stylesheet" href="/static/app.css">
 </head>
-<body>
+<body{% block body_attrs %}{% endblock %}>
   <a class="skip" href="#main">Skip to content</a>
   <header class="site">
     <a class="brand" href="/">Event Leads</a>
     {% if account %}
     <form method="post" action="/sign-out" class="inline">
+      {% if operator %}<a href="/admin">Console</a>{% endif %}
       <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
       <span class="who">{{ account.email }}</span>
       <button type="submit" class="link">Sign out</button>

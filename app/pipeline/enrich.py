@@ -26,6 +26,7 @@ from app import emails, queue
 from app.models import Account, Event, Lead, Person, Run, RunEvent, RunEventStatus, RunStatus
 from app.pipeline import rules, runs, scoring
 from app.pipeline.base import DONE, Defer, JobContext, Outcome, Payload
+from app.pipeline.paid import check_not_paused
 from app.providers.protocols import EmailVerifier
 from app.providers.types import EnrichedPerson, ProviderError
 from app.schemas import MOST_TELLING, AttendanceLabel, Icp, SiteAnalysis
@@ -152,6 +153,7 @@ def _look_up(ctx: JobContext, session: Session, run_id: uuid.UUID, people: list[
     Another run can ask about the same person while this one waits. If it asked later and saved first, its answer
     is the newer one, so it stays.
     """
+    check_not_paused(ctx)
     asked = [(person.id, person.linkedin_url) for person in people]
     asked_at = ctx.now()
     session.commit()  # nothing is held open while Apollo answers
@@ -255,6 +257,7 @@ def _check(
 ) -> str | None:
     """Reoon's word on one address, kept on the person. If Reoon refuses (a rejected key), a note saying the check
     was skipped: Apollo already marked these addresses verified, so the list goes out without it."""
+    check_not_paused(ctx)
     person_id, email = verdict.person.id, verdict.person.email or ""
     session.commit()  # nothing is held open while Reoon answers
     try:

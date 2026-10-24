@@ -99,6 +99,19 @@ stateDiagram-v2
   (5 minutes by default; on the last attempt the job gives up, which fails its run) and closes spend reservations
   left open for over an hour.
 - A worker that lost its claim to another (it was too slow) drops its writes; the new owner redoes the work.
+- `PAUSE_NEW_RUNS` stops spending without stopping the worker: every call to Claude, Apify, Apollo or Reoon first
+  checks it, and a job that would make one is put back for 5 minutes, without using up an attempt. Polling an Apify
+  search already running goes on, so its posts aren't lost. A worker reads its settings when it starts, and changing
+  the variable restarts it, so a worker told to stop starts no paid call either: its job goes straight back for the
+  next worker.
+
+### The operator console
+
+`/admin` (`app/web/console.py`), for the addresses in `ADMIN_EMAILS` only; to anyone else signed in it doesn't exist.
+It lists the latest runs with their status, spend and internal error, today's spend against the daily cap, and the
+queue with the latest failed jobs. Canceling a run sets it to `canceled`, which every step checks before starting
+anything. Each grant (`run_grants`) lets a company start one more run on top of `FREE_RUNS_PER_DOMAIN`. Operators
+sign in at `/sign-in-again`, and their link opens the console.
 
 ## Data model (main tables)
 
@@ -115,6 +128,7 @@ stateDiagram-v2
 | `spend`, `budget_days` | Every paid call, and the running total per day for the daily cap |
 | `rate_limits` | Fixed-window counters for sign-up and sign-in attempts |
 | `outbox_emails` | Emails kept instead of sent where there's no Resend key: local work and previews |
+| `run_grants` | Extra runs an operator gave a company, one row per run |
 
 ## Cost controls
 
@@ -152,7 +166,8 @@ A load test in the QA repo checks the web tier at 500 concurrent users and the q
   them up. Sessions are random tokens in an HttpOnly, Secure, SameSite=Lax cookie, stored hashed and revocable.
   Someone who has asked for a run before gets a new link from `/sign-in-again` (their link expired or was opened on
   another device, or they signed out). It signs them in to their latest run, never starts one, and doesn't say
-  whether an address has an account.
+  whether an address has an account. An operator's link opens the console instead, and an operator needn't have
+  asked for a run first: an address listed in `ADMIN_EMAILS` gets its account made on the spot.
 - **Sign-up abuse:** the start and sign-in-again forms together take 5 attempts an hour per IP address and per email
   address (kept as a hash), and a company's free run is taken under a lock on its domain, so two colleagues signing
   in at once can't both use it.

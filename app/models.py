@@ -171,6 +171,18 @@ class Run(Base):
     results_expire_at: Mapped[datetime | None]
 
 
+class RunGrant(Base):
+    """One more run for a company on top of its free ones, given by an operator (issue #9)."""
+
+    __tablename__ = "run_grants"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    domain: Mapped[str] = mapped_column(String(253), index=True)
+    granted_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("accounts.id", ondelete="SET NULL"))
+    note: Mapped[str | None] = mapped_column(String(300))
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
 class Event(Base):
     """A real-world event, shared across runs so its posts are fetched once."""
 

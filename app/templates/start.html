@@ -5,6 +5,9 @@
 <p class="lead">Tell us your website. We work out who you sell to, find the events they go to, and send you up to
 50 attendees who fit, each with a verified work email and their LinkedIn profile.</p>
 
+{% if paused %}
+<p class="notice" role="status">We're not taking new requests right now. Please come back later.</p>
+{% else %}
 {% if errors %}
 <div class="error-summary" role="alert" aria-labelledby="error-summary-title">
   <h2 id="error-summary-title">Please check the form</h2>
@@ -39,4 +42,5 @@
   <button type="submit">Email me a sign-in link</button>
 </form>
 <p class="small">One free list per company. Nothing runs until you open the link we email you.</p>
+{% endif %}
 {% endblock %}

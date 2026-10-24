@@ -16,6 +16,7 @@ from app.pipeline import enrich
 from app.pipeline.base import DONE, JobContext
 from app.pipeline.enrich import DELIVER, ENRICH
 from app.pipeline.jobs import JOBS
+from app.pipeline.paid import PAUSED_RECHECK
 from app.providers.fakes import FakeMailer
 from app.providers.registry import build_providers
 from app.providers.types import EnrichedPerson, MatchResult, ProviderError
@@ -500,6 +501,31 @@ def test_a_run_no_longer_enriching_is_left_alone(db: Session) -> None:
     run_jobs(db, worker(clock, apollo), clock)
     assert apollo.calls == []
     assert fresh(db, run).status == RunStatus.CANCELED
+
+
+def test_while_paused_apollo_is_not_asked(db: Session) -> None:
+    run, summit = enriching_run(db)
+    url = candidate(db, run, summit, "waiting")
+    apollo, clock = StubApollo({url: found(url)}), Clock()
+    worker(clock, apollo, pause_new_runs=True).run_once()
+    assert apollo.calls == []
+    [job] = jobs(db, ENRICH)
+    assert (job.status, job.attempts, job.run_after) == (JobStatus.QUEUED, 0, NOW + PAUSED_RECHECK)
+    assert fresh(db, run).status == RunStatus.ENRICHING
+
+
+def test_while_paused_no_email_is_checked(db: Session) -> None:
+    run, summit = enriching_run(db)
+    url = candidate(db, run, summit, "looked-up")
+    row = person(db, url)
+    row.enriched_at, row.apollo_id, row.title, row.seniority = NOW - timedelta(days=1), "apollo-x", "VP Marketing", "vp"
+    row.email, row.email_status = "looked-up@northwind.example", "verified"
+    db.commit()
+    verifier, clock = StubVerifier(), Clock()
+    worker(clock, StubApollo(), verifier=verifier, pause_new_runs=True).run_once()
+    assert verifier.checked == []
+    [job] = jobs(db, ENRICH)
+    assert (job.status, job.run_after) == (JobStatus.QUEUED, NOW + PAUSED_RECHECK)
 
 
 def test_the_jobs_are_registered() -> None:

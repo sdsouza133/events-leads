@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import and_, func, not_, select
 from sqlalchemy.orm import Session
 
-from app.models import Run, RunStatus
+from app.models import Run, RunGrant, RunStatus
 
 MIDNIGHT_SPREAD = timedelta(minutes=15)
 
@@ -24,6 +24,12 @@ def runs_used(session: Session, domain: str) -> int:
         )
         or 0
     )
+
+
+def has_run_left(session: Session, domain: str, free_runs: int) -> bool:
+    """Whether the company may start another run: its free ones, plus one for each an operator granted it."""
+    granted = session.scalar(select(func.count()).select_from(RunGrant).where(RunGrant.domain == domain)) or 0
+    return runs_used(session, domain) < free_runs + granted
 
 
 def lock_domain(session: Session, domain: str) -> None:

@@ -10,7 +10,7 @@ which signs them in to their latest run and never starts another.
 import logging
 import uuid
 from datetime import datetime, timedelta
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -39,7 +39,8 @@ FREE_RUN_USED = "Your company has already used its free run."
 
 @router.get("/", response_class=HTMLResponse)
 def start_page(request: Request, *, account: SignedIn, settings: AppSettings) -> HTMLResponse:
-    return page(request, "start.html", {"account": account, "form": {}, "errors": {}}, settings)
+    context: dict[str, Any] = {"account": account, "form": {}, "errors": {}, "paused": settings.pause_new_runs}
+    return page(request, "start.html", context, settings)
 
 
 @router.post("/start", response_class=HTMLResponse)
@@ -59,6 +60,9 @@ def start(
         context = {"account": account, "form": form, "errors": errors}
         return page(request, "start.html", context, settings, status_code=status_code)
 
+    if settings.pause_new_runs:
+        context = {"account": account, "form": form, "errors": {}, "paused": True}
+        return page(request, "start.html", context, settings, status_code=503)
     if not common.csrf_ok(request, csrf):
         return again({"form": "This page had expired. Please send the form again."}, 400)
     site = domains.website(website)
@@ -72,7 +76,7 @@ def start(
         return again({"form": "Too many attempts. Please try again in an hour."}, 429)
     assert site is not None  # noqa: S101 (_check found no error, so the website parsed)
     url, domain = site
-    if runs.runs_used(session, domain) >= settings.free_runs_per_domain:
+    if not runs.has_run_left(session, domain, settings.free_runs_per_domain):
         session.commit()
         return page(request, "used.html", {"account": account, "domain": domain}, settings)
 
@@ -105,7 +109,8 @@ def sign_in_again(
     csrf: Annotated[str, Form()] = "",
 ) -> HTMLResponse:
     """A new link for someone who has asked for a run before: their link expired or was opened on another device,
-    or they signed out. It signs them in to their latest run. The page doesn't say whether the address is known."""
+    or they signed out. It signs them in to their latest run, or an operator to the console. The page doesn't say
+    whether the address is known."""
     address = email.strip().lower()
 
     def again(errors: dict[str, str], status_code: int) -> HTMLResponse:
@@ -121,10 +126,15 @@ def sign_in_again(
         log.warning("sign-in link requests over the limit")  # the rate_limits table shows which IP or address hash
         return again({"form": "Too many attempts. Please try again in an hour."}, 429)
     requester = session.scalars(select(Account).where(Account.email == address)).first()
+    operator = address in settings.admin_emails
+    if requester is None and operator:  # an operator's first sign-in
+        requester = _account(session, address, domains.email_domain(address) or "")
     if requester is not None:
-        latest = session.scalars(
-            select(Run.id).where(Run.account_id == requester.id).order_by(Run.created_at.desc()).limit(1)
-        ).first()
+        latest = None
+        if not operator:  # an operator's link opens the console instead
+            latest = session.scalars(
+                select(Run.id).where(Run.account_id == requester.id).order_by(Run.created_at.desc()).limit(1)
+            ).first()
         _send_link(session, requester.id, latest)
         log.info("sign-in link requested", extra={"account_id": str(requester.id)})
     session.commit()
@@ -170,7 +180,8 @@ def sign_in(
         _begin(session, settings, link.run_id, now=now)
     session.commit()
     log.info("signed in", extra={"account_id": str(requester.id)})
-    response = RedirectResponse(f"/runs/{link.run_id}" if link.run_id else "/", status_code=303)
+    landing = "/admin" if common.is_operator(requester, settings) else "/"
+    response = RedirectResponse(f"/runs/{link.run_id}" if link.run_id else landing, status_code=303)
     response.set_cookie(
         auth.SESSION_COOKIE,
         cookie,
@@ -254,7 +265,7 @@ def _begin(session: Session, settings: Settings, run_id: uuid.UUID, *, now: date
     if run is None or run.status != RunStatus.AWAITING_SIGN_IN:
         return  # already started (an earlier link), or stopped
     runs.lock_domain(session, run.domain)
-    if runs.runs_used(session, run.domain) >= settings.free_runs_per_domain:
+    if not runs.has_run_left(session, run.domain, settings.free_runs_per_domain):
         run.status, run.status_detail, run.completed_at = RunStatus.CANCELED, FREE_RUN_USED, now
         return
     run.status, run.status_detail = RunStatus.ANALYZING, READING_SITE

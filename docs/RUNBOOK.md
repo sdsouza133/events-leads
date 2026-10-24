@@ -19,7 +19,8 @@ What to do when operating the service. Keep it current: every incident should le
 ## The worker
 
 - Start: `python -m app.worker` (locally: `make worker`). Same image as the web service, different start command.
-- SIGTERM (a redeploy) lets the current job finish, then exits. A job cut off by a hard kill is put back after
+- SIGTERM (a redeploy) lets the current job finish, then exits. The job starts no new paid call meanwhile: one about
+  to make a call is put back for the next worker. A job cut off by a hard kill is put back after
   `WORKER_STALE_AFTER_SECONDS` (5 minutes) and its open spend reservation is closed by the rules in ADR 0002.
 - Logs: every job writes `job started` and `job ended` (with `job_id`, `kind`, `run_id`, `ms`); failures write
   `job failed` with the error and whether it will be retried. `housekeeping` lines report jobs put back and
@@ -49,10 +50,25 @@ What to do when operating the service. Keep it current: every incident should le
   (5 times an hour per address, counted with the start form). Links last 30 minutes and work once.
 - Previews keep emails instead of sending them: operators read them on `/dev/outbox`.
 
+## The console
+
+`/admin`, for the addresses in `ADMIN_EMAILS`: sign in at `/sign-in-again` and the link opens it. It shows the latest
+runs with their status, spend and internal error, today's spend against `DAILY_CAP_USD`, and the queue with the
+latest failed jobs (their `last_error`).
+
+- **Cancel a run:** its *Cancel* link, then confirm. Nothing new starts for it; a call already under way finishes and
+  its cost is counted. The requester sees that the run stopped. A run canceled before it spent anything doesn't use
+  up the company's free run.
+- **Give a company another run:** *Grant a company another run*, with its website or domain and a note. Each grant is
+  one more run on top of `FREE_RUNS_PER_DOMAIN`, and the company starts it from the start form as usual.
+
 ## Pausing spend immediately
 
-Set `PAUSE_NEW_RUNS=true` on the worker service. Runs already collecting finish their current step and stop; nothing new
-starts. To also stop runs in progress, scale the worker to zero.
+Set `PAUSE_NEW_RUNS=true` on both services, web and worker; Railway restarts them with it. The start form takes no new
+requests, and every job about to call Claude, Apify, Apollo or Reoon is put back and checked again every 5 minutes
+(the log says `job paused`). That includes the job a worker was running when it restarted: it makes no further paid
+call. A call already under way finishes, and searches already running on Apify are still collected. Unset it and
+everything carries on where it stopped. Scaling the worker to zero stops paid calls the same way.
 
 ## Rotating a secret
 

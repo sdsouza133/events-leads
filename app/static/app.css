@@ -27,6 +27,9 @@ main, header.site, footer.site {
   padding: 1rem 1.25rem;
 }
 
+/* The operator console: wide tables, so a wider page. */
+body.wide main, body.wide header.site, body.wide footer.site { max-width: 72rem; }
+
 header.site {
   display: flex;
   align-items: center;
@@ -162,6 +165,7 @@ table { border-collapse: collapse; width: 100%; font-size: 0.9375rem; }
 caption { text-align: left; font-weight: 700; padding: 0.5rem 0; }
 th, td { text-align: left; vertical-align: top; padding: 0.5rem 0.625rem; border-bottom: 1px solid var(--border); }
 thead th { background: var(--surface); }
+td.nowrap { white-space: nowrap; }
 .status h2 { margin-top: 0; }
 
 .email { border-top: 1px solid var(--border); }
