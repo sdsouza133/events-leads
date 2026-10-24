@@ -6,13 +6,18 @@ against these exact schemas), requesters edit them in the plan form, and they ar
 
 import enum
 from datetime import date
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 ShortText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
 Sentence = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=600)]
 Url = Annotated[str, StringConstraints(strip_whitespace=True, min_length=8, max_length=2048, pattern=r"^https?://")]
+Query = Annotated[str, StringConstraints(strip_whitespace=True, min_length=2, max_length=300)]
+"""One LinkedIn post search, e.g. `"SaaStr Annual" AND (attending OR speaking)`."""
+
+MAX_QUERIES = 4
+"""LinkedIn searches per event."""
 
 
 class Seniority(enum.StrEnum):
@@ -87,21 +92,32 @@ class SiteAnalysis(_Strict):
     event_topics: list[ShortText] = Field(min_length=1, max_length=8, description="Themes to look for events about")
 
 
-class EventSuggestion(_Strict):
+class _EventFields(_Strict):
     name: ShortText
     short_name: ShortText | None = None
     hashtags: list[ShortText] = Field(default_factory=list, max_length=5)
     start_date: date | None = None
     end_date: date | None = None
     location: ShortText | None = Field(default=None, description="City and country, or 'Online'")
-    url: Url
-    source_url: Url = Field(description="The web search result this event was found in")
-    why: Sentence
 
     @field_validator("hashtags")
     @classmethod
     def _bare_hashtags(cls, tags: list[str]) -> list[str]:
         return [t.lstrip("#") for t in tags if t.lstrip("#")]
+
+
+class EventSuggestion(_EventFields):
+    url: Url
+    source_url: Url = Field(description="The web search result this event was found in")
+    why: Sentence
+
+
+class ApprovedEvent(_EventFields):
+    """An event the requester approved as suggested, edited, or added, with the searches to run for it."""
+
+    url: Url | None = None
+    queries: list[Query] = Field(min_length=1, max_length=MAX_QUERIES)
+    source: Literal["suggested", "requester"] = "suggested"
 
 
 class AttendanceLabel(enum.StrEnum):

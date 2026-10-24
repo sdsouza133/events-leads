@@ -42,6 +42,11 @@ class Settings(BaseSettings):
     worker_heartbeat_seconds: int = Field(default=30, ge=1, le=300)
     worker_stale_after_seconds: int = Field(default=300, ge=60)  # no heartbeat for this long: the job is put back
 
+    # Collecting posts (issue #5): one Apify search per event, whose posts other runs reuse for a few days.
+    search_posts_per_query: int = Field(default=50, ge=1, le=200)
+    search_cache_days: int = Field(default=3, ge=0, le=30)
+    search_poll_seconds: int = Field(default=20, ge=1, le=600)
+
     # External services. "fake" runs everything offline on synthetic data (tests, local work, previews).
     providers: Literal["fake", "real"] = "fake"
     anthropic_api_key: SecretStr | None = None

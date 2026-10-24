@@ -52,8 +52,12 @@ stateDiagram-v2
    instead of a guess. `find_events` asks Claude, with live web search, for real events, and builds up to four
    LinkedIn searches per event. Results are stored on the run for the requester to edit. Both jobs stay within the
    analysis budget, the only spend before approval.
-2. **collect**: for each approved event, one Apify run with its keyword searches, capped by `maxTotalChargeUsd`. Posts
-   go into a shared cache keyed by event and query, so the next company asking about the same event reuses them.
+2. **collect**, one `collect_event` job per approved event (at most three). A search any run made for the same event
+   in the last `SEARCH_CACHE_DAYS` (3) is reused, and a run waits for another run's search of the event rather than
+   pay for the same posts; the rest go into one Apify run capped by `maxTotalChargeUsd`. The job stores the Apify
+   run's id before polling it, so a worker that stops mid-search picks the same run back up. Posts, which search
+   found each, and the searches themselves go into the shared cache. A search that fails or runs past 30 minutes is
+   tried once more, then only its event is dropped; the run fails only if no event could be searched.
 3. **qualify**: cheap text rules label the obvious posts; Claude labels the rest in batches. Labels are cached per
    post and event. People whose headline can't match the ICP are dropped before any paid lookup.
 4. **enrich**: Apollo bulk match by LinkedIn URL (10 people per call), cached per person. ICP scoring on the enriched

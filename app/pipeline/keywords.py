@@ -7,9 +7,8 @@ phrases (during and after it), and the short name people actually use.
 
 from datetime import date
 
-from app.schemas import EventSuggestion
+from app.schemas import MAX_QUERIES, EventSuggestion
 
-MAX_QUERIES = 4
 GOING = '("see you at" OR "heading to" OR attending OR speaking OR booth)'
 WENT = '("back from" OR takeaways OR recap OR highlights)'
 
