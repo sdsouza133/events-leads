@@ -71,8 +71,9 @@ queues it whenever no copy is waiting, so one copy always waits for its next rou
 
 - marks the runs whose results have expired (`RESULTS_DAYS` after they were ready) `expired` and deletes their
   leads; runs that failed or were canceled lose their leads 30 days after they stopped;
-- deletes the posts fetched, and the people looked up, more than 30 days ago that no list holds any more (a post's
-  labels and links to events go with it), and labels, searches and manual AI questions older than 30 days;
+- deletes posts fetched more than 30 days ago that no list holds any more (a post's labels and links to events go
+  with it), and people no list holds unless Apollo or the email check looked them up in the last 30 days (that
+  answer is reused); and labels, searches and manual AI questions older than 30 days;
 - deletes kept emails (previews) after 30 days, sign-up counters (they hold IP addresses) after a day, expired
   sign-in links and sessions, and jobs that finished more than 30 days ago.
 

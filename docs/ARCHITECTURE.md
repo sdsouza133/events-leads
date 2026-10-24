@@ -125,9 +125,10 @@ key lets one copy at most wait or run, and an advisory lock keeps any two rounds
 
 - **Lists:** a `ready` run whose `results_expire_at` has passed becomes `expired` and its `run_leads` are deleted. A
   run that failed or was canceled loses its leads 30 days after it stopped.
-- **Shared data:** `posts` fetched and `people` looked up (Apollo, or the email check) more than 30 days ago go
-  once no lead points at them; a post's `event_posts` and `post_labels` go with it. `post_labels`, `search_cache`
-  and `ai_tasks` older than 30 days go regardless.
+- **Shared data:** once no lead points at them, `posts` fetched more than 30 days ago go (a post's `event_posts`
+  and `post_labels` with it), and so do `people`, unless Apollo or the email check looked them up in the last 30
+  days: that answer is reused. Someone never looked up holds nothing worth keeping, so they go as soon as no list
+  holds them. `post_labels`, `search_cache` and `ai_tasks` older than 30 days go regardless.
 - **Everything else holding personal data or growing without end:** `outbox_emails` after 30 days, `rate_limits`
   after a day, expired `login_tokens` and `sessions`, and `jobs` finished more than 30 days ago.
 

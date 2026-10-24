@@ -13,8 +13,8 @@ three working days.
 - CodeQL static analysis runs on every pull request and weekly.
 - Personal data (names, emails, LinkedIn URLs) is shown only to the account that requested it and to operators, and
   is deleted after 30 days by a job that runs every hour: a list when its results expire, 30 days after it was
-  ready, and the posts and people behind it once no list holds them and they were fetched or looked up more than
-  30 days ago. Sign-up counters, which hold IP addresses, go after a day. The
+  ready, and the posts and people behind it once no list holds them, unless a post was fetched or a person looked
+  up in Apollo in the last 30 days. Sign-up counters, which hold IP addresses, go after a day. The
   [runbook](docs/RUNBOOK.md#personal-data-after-30-days) lists everything the job deletes.
 - Logs identify people by internal IDs and never contain lead data or sign-in links; a requester's email appears
   only masked, on the sign-in and rate-limit lines written before an account exists.
