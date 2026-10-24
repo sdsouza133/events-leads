@@ -117,14 +117,50 @@ def test_the_list_shows_who_was_included_best_fit_first(client: TestClient, db: 
     sign_in_as(client, db, run.account_id)
 
     page = text(client.get(f"/runs/{run.id}"))
-    assert "3 people who went to, or are going to, Pipeline Week 2026 and RevOps Summit 2026" in page
+    assert "3 leads, ready to go" in page
+    assert "From Pipeline Week 2026 and RevOps Summit 2026 · best fit first" in page
     names = [name for name in ["Top Fit", "Sam Speaker", "Ana Attendee"] if name in page]
     assert names == ["Top Fit", "Sam Speaker", "Ana Attendee"]
     assert page.index("Top Fit") < page.index("Sam Speaker") < page.index("Ana Attendee")  # a speaker before a guest
     assert "Left Out" not in page
     assert 'href="https://www.linkedin.com/in/top-fit"' in page
-    assert "Speaking: " in page
+    assert '<span class="badge tone-warm">Speaking</span> RevOps Summit 2026' in page  # the badge, then the event
     assert f'href="/runs/{run.id}/leads.csv"' in page
+
+
+def test_the_list_can_show_one_kind_of_attendee(client: TestClient, db: Session) -> None:
+    run = finished_run(db)
+    lead(db, run, "Ana Attendee", attendance="attending")
+    lead(db, run, "Sam Speaker", attendance="speaking")
+    lead(db, run, "Sue Speaker", attendance="speaking", score=70)
+    sign_in_as(client, db, run.account_id)
+
+    everyone = text(client.get(f"/runs/{run.id}"))
+    assert 'aria-current="true">All <span class="filter-count">3</span>' in everyone
+    assert f'href="/runs/{run.id}?only=speaking#leads">Speaking <span class="filter-count">2</span>' in everyone
+    assert "Exhibiting" not in everyone  # nobody exhibiting: no filter for it
+
+    speakers = text(client.get(f"/runs/{run.id}?only=speaking"))
+    assert "Sam Speaker" in speakers
+    assert "Sue Speaker" in speakers
+    assert "Ana Attendee" not in speakers
+    assert "3 leads, ready to go" in speakers  # the heading still counts the whole list
+    assert 'aria-current="true">Speaking' in speakers
+    assert "Ana Attendee" in text(client.get(f"/runs/{run.id}?only=nonsense"))  # an unknown filter shows all
+
+
+@pytest.mark.parametrize(
+    ("name", "initials"), [("Ana Maria Attendee", "AA"), ("Prince", "P"), ("", ""), ("jo smith", "JS")]
+)
+def test_a_lead_s_initials_are_their_first_and_last(name: str, initials: str) -> None:
+    assert results.Row(name, "", "", "", "", "", "Going", "", 50, []).initials == initials
+
+
+def test_why_a_lead_fits_is_said_in_words() -> None:
+    reasons = ["headline matches 'growth'", "seniority is vp", "industry matches 'Software'", "company size is 51-200"]
+    row = results.Row("Jo", "", "", "", "", "", "Going", "", 100, reasons)
+    assert row.matches == "Matches on title, seniority, industry and company size"
+    assert results.Row("Jo", "", "", "", "", "", "Went", "", 0, []).matches == ""
 
 
 def test_a_run_that_found_nobody_says_so(client: TestClient, db: Session) -> None:
@@ -196,7 +232,7 @@ def test_expired_results_are_neither_shown_nor_downloadable(client: TestClient, 
     lead(db, run, "Top Fit")
     sign_in_as(client, db, run.account_id)
     page = text(client.get(f"/runs/{run.id}"))
-    assert "These results have expired." in page
+    assert "This list has expired" in page
     assert "Top Fit" not in page
     download = client.get(f"/runs/{run.id}/leads.csv")
     assert download.status_code == 410

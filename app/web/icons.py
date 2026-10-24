@@ -23,6 +23,10 @@ PATHS = {
     "key": Markup(
         '<circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.7 12.3 9.8-9.8"/><path d="m16 7 3 3"/><path d="m19 4 2 2"/>'
     ),
+    "linkedin": Markup(
+        '<path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-4 0v7h-4v-7a6 6 0 0 1 6-6z"/>'
+        '<rect x="2" y="9" width="4" height="12"/><circle cx="4" cy="4" r="2"/>'
+    ),
     "mail": Markup('<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>'),
     "search": Markup('<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>'),
     "users": Markup(

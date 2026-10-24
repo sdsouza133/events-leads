@@ -1,5 +1,6 @@
-// While a run works, check its status every few seconds. Tick the steps off as they finish (read out by screen
-// readers through the status line), and reload the page once the run moves on: to its plan, its list, or a stop.
+// While a run works, check its status every few seconds. Tick the steps off as they finish (each new one is read
+// out to screen readers), keep the search's counters and progress bar current, and reload the page once the run
+// moves on: to its plan, its list, or a stop.
 (function () {
   "use strict";
   var el = document.getElementById("run");
@@ -28,6 +29,13 @@
     current = step;
   }
 
+  function count(id, value) {
+    var counter = document.getElementById(id);
+    if (counter) {
+      counter.textContent = value.toLocaleString("en-US");
+    }
+  }
+
   function show(body) {
     if (!body.progress || body.progress.phase !== phase) {
       window.location.reload(); // the run moved on: the page shows its new stage
@@ -36,6 +44,16 @@
     tick(body.progress.step);
     if (note && note.textContent !== body.progress.note) {
       note.textContent = body.progress.note;
+    }
+    if (body.found) {
+      count("found-posts", body.found.posts);
+      count("found-people", body.found.people);
+      count("found-emails", body.found.emails);
+      var bar = document.getElementById("found-percent");
+      if (bar) {
+        bar.value = body.found.percent;
+        bar.textContent = body.found.percent + "%";
+      }
     }
     window.setTimeout(check, every);
   }

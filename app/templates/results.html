@@ -1,41 +1,56 @@
 {% extends "base.html" %}
 {% block title %}Your leads for {{ run.domain }}{% endblock %}
+{% block main_class %}page-results{% endblock %}
 {% block main %}
-<h1>Your leads for {{ run.domain }}</h1>
-{% if expired %}
-<p class="lead">These results have expired. We keep a list for {{ days }} days, then delete the personal data in it.</p>
-{% elif not rows %}
-<p class="lead">{{ run.status_detail or "We didn't find anyone this time." }}</p>
-{% else %}
-<p class="lead">{{ rows | length }} {{ "person" if rows | length == 1 else "people" }} who went to, or are going to,
-{{ events }}, who match who you sell to and have a verified work email.</p>
-<p><a class="button" href="/runs/{{ run.id }}/leads.csv">Download the list (CSV)</a></p>
-{% if until %}<p class="small">You can see and download this list until {{ until }}.</p>{% endif %}
-<div class="table-wrap" role="region" aria-labelledby="leads-caption" tabindex="0">
-  <table>
-    <caption id="leads-caption">Your leads, best fit first</caption>
-    <thead>
-      <tr>
-        <th scope="col">Name</th>
-        <th scope="col">Title and company</th>
-        <th scope="col">Email</th>
-        <th scope="col">Event</th>
-        <th scope="col">ICP score</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for row in rows %}
-      <tr>
-        <td>{% if row.linkedin_url %}<a href="{{ row.linkedin_url }}" target="_blank" rel="noopener noreferrer">{{ row.name or "LinkedIn profile" }}<span class="visually-hidden"> on LinkedIn (opens in a new tab)</span></a>{% else %}{{ row.name }}{% endif %}</td>
-        <td>{{ row.title }}{% if row.title and row.company %}<br>{% endif %}{{ row.company }}</td>
-        <td>{{ row.email }}</td>
-        <td>{{ row.event }}<br>
-          <span class="small">{{ row.attendance }}{% if row.post_url %}: <a href="{{ row.post_url }}" target="_blank" rel="noopener noreferrer">their post<span class="visually-hidden"> (opens in a new tab)</span></a>{% endif %}</span></td>
-        <td>{{ row.score }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
+<section class="card results-head">
+  <div class="results-title">
+    <span class="eyebrow">{{ run.domain }}</span>
+    {% if expired %}
+    <h1>This list has expired</h1>
+    <p class="lead">We keep a list for {{ days }} days, then delete the personal data in it.</p>
+    {% elif not rows %}
+    <h1>No leads this time</h1>
+    <p class="lead">{{ run.status_detail or "We didn't find anyone this time." }}</p>
+    {% else %}
+    <h1>{{ rows | length }} {{ "lead" if rows | length == 1 else "leads" }}, ready to go</h1>
+    <p class="lead">From {{ events }} · best fit first{% if until %} · yours until {{ until }}{% endif %}</p>
+    {% endif %}
+  </div>
+  {% if rows and not expired %}
+  <a class="btn btn-lg" href="/runs/{{ run.id }}/leads.csv">{{ icon("download") }} Download CSV</a>
+  {% endif %}
+</section>
+
+{% if rows and not expired %}
+<nav class="filters" aria-label="Show">
+  {% for filter in filters %}
+  <a class="filter" href="{{ filter.href }}"{% if filter.current %} aria-current="true"{% endif %}>{{ filter.label }} <span class="filter-count">{{ filter.count }}</span></a>
+  {% endfor %}
+</nav>
+
+<ul class="leads" id="leads" aria-label="Your leads, best fit first">
+  {% for row in shown %}
+  <li class="lead-card">
+    <div class="lead-who">
+      <span class="avatar tone-{{ row.tone }}" aria-hidden="true">{{ row.initials or "?" }}</span>
+      <div class="lead-text">
+        <h2 class="lead-name">{{ row.name or "Name not shown" }}</h2>
+        <p class="lead-role">{{ [row.title, row.company] | select | join(" · ") }}</p>
+        {% if row.email %}<p class="lead-email">{{ row.email }}</p>{% endif %}
+      </div>
+    </div>
+    <div class="lead-where">
+      <p class="lead-event"><span class="badge tone-{{ row.tone }}">{{ row.attendance }}</span> {{ row.event }}</p>
+      {% if row.matches %}<p class="lead-why">{{ row.matches }}</p>{% endif %}
+      {% if row.post_url %}<a class="lead-post" href="{{ row.post_url }}" target="_blank" rel="noopener noreferrer">Their post<span class="visually-hidden"> about {{ row.event }} (opens in a new tab)</span></a>{% endif %}
+    </div>
+    <div class="lead-actions">
+      <span class="fit"><span class="fit-score">{{ row.score }}</span><span class="fit-label">fit<span class="visually-hidden"> score, out of 100</span></span></span>
+      {% if row.email %}<a class="icon-btn" href="mailto:{{ row.email | urlencode }}">{{ icon("mail") }}<span class="visually-hidden">Email {{ row.name or row.email }}</span></a>{% endif %}
+      {% if row.linkedin_url %}<a class="icon-btn icon-linkedin" href="{{ row.linkedin_url }}" target="_blank" rel="noopener noreferrer">{{ icon("linkedin") }}<span class="visually-hidden">{{ row.name or "Their profile" }} on LinkedIn (opens in a new tab)</span></a>{% endif %}
+    </div>
+  </li>
+  {% endfor %}
+</ul>
 {% endif %}
 {% endblock %}
