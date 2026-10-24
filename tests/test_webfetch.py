@@ -1,4 +1,5 @@
-from collections.abc import Callable
+import socket
+from collections.abc import Callable, Iterator
 
 import httpx2
 import pytest
@@ -246,6 +247,66 @@ def test_an_empty_dns_answer_is_reported_as_not_found() -> None:
         fetcher.fetch("https://empty.example/")
 
 
-def test_the_system_resolver_reports_unknown_hosts() -> None:
+def test_the_system_resolver_reports_unknown_hosts(monkeypatch: pytest.MonkeyPatch) -> None:
+    def not_found(*_args: object, **_kwargs: object) -> list[object]:
+        raise socket.gaierror("Name or service not known")
+
+    monkeypatch.setattr(socket, "getaddrinfo", not_found)  # no real DNS: the answer must not depend on the machine
     with pytest.raises(FetchError, match="could not be found"):
-        system_resolver("no-such-host.invalid", 443)
+        system_resolver("no-such-host.example", 443)
+
+
+@pytest.mark.parametrize(
+    ("error", "message"),
+    [
+        (httpx2.ConnectError("connection refused"), "acme.example could not be reached"),
+        (httpx2.ReadTimeout("read timed out"), "took too long to answer"),
+        (httpx2.RemoteProtocolError("peer closed connection"), "acme.example could not be reached"),
+    ],
+)
+def test_network_failures_become_fetch_errors(error: Exception, message: str) -> None:
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        raise error
+
+    with pytest.raises(FetchError, match=message):
+        make_fetcher(handler, {"acme.example": [PUBLIC_V4]}).fetch("https://acme.example/")
+
+
+def test_a_body_that_fails_while_reading_becomes_a_fetch_error() -> None:
+    class BrokenStream(httpx2.SyncByteStream):
+        def __iter__(self) -> Iterator[bytes]:
+            yield b"<html><body>half a page"
+            raise httpx2.ReadError("connection reset")
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(200, headers={"content-type": "text/html"}, stream=BrokenStream())
+
+    with pytest.raises(FetchError, match="could not be reached"):
+        make_fetcher(handler, {"acme.example": [PUBLIC_V4]}).fetch("https://acme.example/")
+
+
+def test_an_unknown_charset_is_read_as_utf8() -> None:
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        body = "<html><body>Caf\u00e9 analytics</body></html>".encode()
+        return httpx2.Response(200, headers={"content-type": "text/html; charset=no-such-charset"}, content=body)
+
+    page = make_fetcher(handler, {"acme.example": [PUBLIC_V4]}).fetch("https://acme.example/")
+    assert page.text == "Caf\u00e9 analytics"
+
+
+def test_a_malformed_redirect_is_a_fetch_error() -> None:
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(302, headers={"location": "http://[broken/"})
+
+    with pytest.raises(FetchError, match="redirected to an invalid address"):
+        make_fetcher(handler, {"acme.example": [PUBLIC_V4]}).fetch("https://acme.example/")
+
+
+def test_malformed_links_are_skipped() -> None:
+    page = extract_page(
+        "https://acme.example/",
+        200,
+        "text/html",
+        '<a href="http://[broken/">bad</a> <a href="/about">About</a>',
+    )
+    assert page.links == ["https://acme.example/about"]

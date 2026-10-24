@@ -1,4 +1,7 @@
-"""The interfaces the pipeline depends on (ADR 0003). Each has a real implementation and a fake."""
+"""The interfaces the pipeline depends on (ADR 0003). Each has a real implementation and a fake.
+
+Method bodies are docstrings only: a Protocol describes the contract and never runs.
+"""
 
 from datetime import date
 from decimal import Decimal
@@ -12,43 +15,45 @@ from app.schemas import EventSuggestion, LabeledPost, PostToLabel, SiteAnalysis
 class WebFetcher(Protocol):
     def fetch(self, url: str) -> FetchedPage:
         """Fetch one page. Raises FetchError (with a message safe to show the requester) when it can't."""
-        ...
 
 
 @runtime_checkable
 class Llm(Protocol):
-    def analyze_site(self, pages: list[FetchedPage]) -> SiteAnalysis: ...
+    def analyze_site(self, pages: list[FetchedPage]) -> SiteAnalysis:
+        """The company, its ICP and the topics of events its buyers attend, read from a few of its pages."""
 
     def find_events(self, analysis: SiteAnalysis, *, today: date) -> list[EventSuggestion]:
         """Events from live web search, never from memory: each one names the search result it came from."""
-        ...
 
-    def label_posts(self, event_name: str, posts: list[PostToLabel]) -> list[LabeledPost]: ...
+    def label_posts(self, event_name: str, posts: list[PostToLabel]) -> list[LabeledPost]:
+        """Exactly one attendance label per post, in the order given."""
 
 
 @runtime_checkable
 class PostSearch(Protocol):
-    def start(self, queries: list[str], *, max_posts_per_query: int, max_charge_usd: Decimal) -> SearchRun: ...
+    def start(self, queries: list[str], *, max_posts_per_query: int, max_charge_usd: Decimal) -> SearchRun:
+        """Start one search run for these queries. The provider stops it once it has charged `max_charge_usd`."""
 
-    def get(self, run_id: str) -> SearchRun: ...
+    def get(self, run_id: str) -> SearchRun:
+        """The run's status now and, once it has finished, what it cost."""
 
-    def posts(self, run: SearchRun) -> list[SearchedPost]: ...
+    def posts(self, run: SearchRun) -> list[SearchedPost]:
+        """Every post a finished run found."""
 
 
 @runtime_checkable
 class PeopleEnrichment(Protocol):
     def match(self, linkedin_urls: list[str]) -> MatchResult:
         """Look up to 10 people by LinkedIn URL."""
-        ...
 
 
 @runtime_checkable
 class EmailVerifier(Protocol):
     def verify(self, email: str) -> str:
         """The verifier's status for the address, e.g. 'safe', 'invalid', 'catch_all'."""
-        ...
 
 
 @runtime_checkable
 class Mailer(Protocol):
-    def send(self, email: OutgoingEmail) -> None: ...
+    def send(self, email: OutgoingEmail) -> None:
+        """Send one email."""

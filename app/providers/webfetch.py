@@ -135,16 +135,22 @@ class SafeFetcher:
         for _ in range(self._max_redirects + 1):
             target = _check_url(current)
             address = self._public_address(target)
-            with self._client.stream(
-                "GET",
-                _url_for_address(target, address),
-                headers={"Host": target.host, "User-Agent": USER_AGENT, "Accept": "text/html,text/plain;q=0.9"},
-                extensions={"sni_hostname": target.host} if target.parts.scheme == "https" else {},
-            ) as response:
-                if response.status_code in REDIRECT_CODES and "location" in response.headers:
-                    current = urljoin(current, response.headers["location"])
-                    continue
-                return self._read_page(current, response)
+            try:
+                with self._client.stream(
+                    "GET",
+                    _url_for_address(target, address),
+                    headers={"Host": target.host, "User-Agent": USER_AGENT, "Accept": "text/html,text/plain;q=0.9"},
+                    extensions={"sni_hostname": target.host} if target.parts.scheme == "https" else {},
+                ) as response:
+                    if response.status_code in REDIRECT_CODES and "location" in response.headers:
+                        current = _redirect_target(current, response.headers["location"])
+                        continue
+                    return self._read_page(current, response)
+            # Connection, TLS, protocol and decoding failures, while connecting or while reading the body.
+            except httpx2.TimeoutException as exc:
+                raise FetchError("the site took too long to answer") from exc
+            except (httpx2.HTTPError, httpx2.InvalidURL) as exc:
+                raise FetchError(f"{target.host} could not be reached") from exc
         raise FetchError("the site redirected too many times")
 
     def _public_address(self, target: _Target) -> str:
@@ -170,8 +176,18 @@ class SafeFetcher:
                 raise FetchError("the page is too large to read")
             if time.monotonic() > deadline:
                 raise FetchError("the site took too long to answer")
-        text = bytes(body).decode(response.charset_encoding or "utf-8", errors="replace")
+        try:
+            text = bytes(body).decode(response.charset_encoding or "utf-8", errors="replace")
+        except LookupError:  # a charset Python doesn't know (the site sets the header, so anything can be in it)
+            text = bytes(body).decode("utf-8", errors="replace")
         return extract_page(url, response.status_code, content_type, text)
+
+
+def _redirect_target(current: str, location: str) -> str:
+    try:
+        return urljoin(current, location)
+    except ValueError as exc:  # e.g. an unclosed IPv6 bracket
+        raise FetchError("the site redirected to an invalid address") from exc
 
 
 def _url_for_address(target: _Target, address: str) -> str:
@@ -190,7 +206,10 @@ def extract_page(url: str, status: int, content_type: str, body: str) -> Fetched
         description = str(meta.get("content") or "").strip() or None
     links: list[str] = []
     for anchor in soup.find_all("a", href=True):
-        absolute = urljoin(url, str(anchor["href"])).split("#")[0]
+        try:
+            absolute = urljoin(url, str(anchor["href"])).split("#")[0]
+        except ValueError:  # a malformed href is the site's problem, not a reason to fail the page
+            continue
         if absolute.startswith(("http://", "https://")) and absolute not in links:
             links.append(absolute)
         if len(links) >= MAX_LINKS:
