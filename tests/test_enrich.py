@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.config import Settings
@@ -434,7 +434,7 @@ def test_the_job_takes_turns_with_other_runs(db: Session) -> None:
     urls = [candidate(db, run, summit, f"person-{i:02d}") for i in range(60)]
     apollo = StubApollo({url: found(url) for url in urls})
     clock = Clock()
-    w = worker(clock, apollo, max_leads=60)
+    w = worker(clock, apollo)
     assert w.run_once()
 
     assert len(apollo.calls) == enrich.CALLS_PER_TURN  # then it went to the back of the queue
@@ -443,7 +443,30 @@ def test_the_job_takes_turns_with_other_runs(db: Session) -> None:
     assert fresh(db, run).status == RunStatus.ENRICHING
     run_jobs(db, w, clock)
     assert len(apollo.calls) == 6
-    assert fresh(db, run).leads_count == 60
+    assert fresh(db, run).leads_count == 50  # MAX_LEADS
+
+
+def test_an_answer_overtaken_by_a_newer_one_does_not_replace_it(db: Session) -> None:
+    run, summit = enriching_run(db)
+    url = candidate(db, run, summit, "in-two-runs")
+    clock = Clock()
+
+    class Overtaken(StubApollo):
+        def match(self, linkedin_urls: list[str]) -> MatchResult:
+            answer = super().match(linkedin_urls)
+            clock.now += timedelta(seconds=5)  # Apollo took its time
+            # Meanwhile another run asked about the same person, after this one did, and saved its answer first.
+            newer = enrich._apollo_fields(found(url, email="newer@northwind.example"), NOW + timedelta(seconds=2))
+            db.execute(update(Person).where(Person.linkedin_url == url).values(**newer))
+            db.commit()
+            return answer
+
+    run_jobs(db, worker(clock, Overtaken({url: found(url)})), clock)
+
+    saved = person(db, url)
+    assert (saved.email, saved.enriched_at) == ("newer@northwind.example", NOW + timedelta(seconds=2))
+    assert included(db, run) == {"in-two-runs"}
+    assert fresh(db, run).apollo_credits_used == 1  # the overtaken answer was paid for all the same
 
 
 def test_a_busy_apollo_is_asked_again_later(db: Session) -> None:
