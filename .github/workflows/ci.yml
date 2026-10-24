@@ -80,7 +80,7 @@ jobs:
           uv export --frozen --no-dev --no-hashes --format requirements-txt > requirements.txt
           uvx pip-audit --requirement requirements.txt --strict
       - name: Secrets committed by mistake
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
