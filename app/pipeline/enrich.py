@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.orm import Session
 
 from app import emails, queue
@@ -147,23 +147,31 @@ def _to_look_up(ctx: JobContext, run: Run, icp: Icp, candidates: list[tuple[Lead
 
 
 def _look_up(ctx: JobContext, session: Session, run_id: uuid.UUID, people: list[Person]) -> None:
+    """Ask Apollo about these people and keep its answers, each dated by when it was asked for.
+
+    Another run can ask about the same person while this one waits. If it asked later and saved first, its answer
+    is the newer one, so it stays.
+    """
     asked = [(person.id, person.linkedin_url) for person in people]
+    asked_at = ctx.now()
     session.commit()  # nothing is held open while Apollo answers
     found = ctx.providers.enrichment.match([url for _, url in asked])
-    now = ctx.now()
     run = runs.locked(session, run_id)  # the run, then its people: the order every step locks them in
     if run is not None:
         run.apollo_credits_used += found.credits_used
+    not_newer = or_(Person.enriched_at.is_(None), Person.enriched_at < asked_at)
     answers = sorted(zip((person_id for person_id, _ in asked), found.people, strict=True), key=lambda a: a[0])
     for person_id, match in answers:  # people in a fixed order, so two runs updating the same ones can't deadlock
-        session.execute(update(Person).where(Person.id == person_id).values(**_apollo_fields(match, now)))
+        session.execute(
+            update(Person).where(Person.id == person_id, not_newer).values(**_apollo_fields(match, asked_at))
+        )
     session.commit()
 
 
-def _apollo_fields(match: EnrichedPerson | None, now: datetime) -> dict[str, Any]:
-    """What Apollo says now, replacing what it said before. An earlier email check goes with the earlier address."""
+def _apollo_fields(match: EnrichedPerson | None, asked_at: datetime) -> dict[str, Any]:
+    """What Apollo said, replacing what it said before. An earlier email check goes with the earlier address."""
     fields: dict[str, Any] = {
-        "enriched_at": now,
+        "enriched_at": asked_at,
         "apollo_id": None,
         "title": None,
         "seniority": None,

@@ -48,8 +48,8 @@ class Settings(BaseSettings):
     search_poll_seconds: int = Field(default=20, ge=1, le=600)
 
     # Finding emails and delivering the list (issue #7). Apollo bills a credit per person it finds, so each run has
-    # an allowance of credits rather than dollars.
-    max_leads: int = Field(default=50, ge=1, le=500)
+    # an allowance of credits rather than dollars. A list holds at most 50 people, as the PRD promises.
+    max_leads: int = Field(default=50, ge=1, le=50)
     apollo_credits_per_run: int = Field(default=150, ge=0, le=1000)
     # How long a person's Apollo data and email check are reused. At most 30: personal data is deleted by then (PRD).
     person_cache_days: int = Field(default=30, ge=1, le=30)

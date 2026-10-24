@@ -127,3 +127,8 @@ def test_at_least_one_email_status_is_accepted() -> None:
 def test_people_are_not_cached_past_the_30_days_personal_data_is_kept() -> None:
     with pytest.raises(ValidationError, match="person_cache_days"):
         Settings(person_cache_days=31)
+
+
+def test_a_list_holds_at_most_50_people() -> None:
+    with pytest.raises(ValidationError, match="max_leads"):
+        Settings(max_leads=51)

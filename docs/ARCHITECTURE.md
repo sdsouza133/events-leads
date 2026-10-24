@@ -66,7 +66,8 @@ stateDiagram-v2
    requester's own colleague) is kept with the reason and skipped by the paid steps.
 4. **enrich**, one `enrich` job per run. Apollo bulk match by LinkedIn URL, 10 people per call, candidates whose
    headline fits a persona first. Whatever Apollo answers, found or not, is cached on the person for
-   `PERSON_CACHE_DAYS` (30 days, as long as personal data may be kept), so other runs reuse it. The ICP score
+   `PERSON_CACHE_DAYS` (30 days, as long as personal data may be kept), so other runs reuse it. When two runs ask
+   about the same person at once, the answer to the later question is the one kept. The ICP score
    (`app/pipeline/scoring.py`) uses the enriched title, seniority, company industry and company size, and its
    reasons are kept on the lead. People without an email Apollo marks verified, with an excluded title, at the
    requester's company, or scoring below `MIN_ICP_SCORE` (40) are left out with the reason; the best 50 make the
