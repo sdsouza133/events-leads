@@ -189,10 +189,10 @@ def test_a_search_runs_and_its_posts_are_stored(db: Session) -> None:
         NOW + timedelta(seconds=20),
     )
     assert db.scalar(select(func.count()).select_from(Post)) == 18
-    links = db.execute(select(EventPost.query, func.count()).group_by(EventPost.query).order_by(EventPost.query))
+    links = db.execute(select(EventPost.query, func.count()).group_by(EventPost.query))
     assert sorted(tuple(row) for row in links) == sorted((q, 9) for q in QUERIES)
-    cached = db.scalars(select(SearchCache).order_by(SearchCache.query)).all()
-    assert [(c.query, c.post_count, c.cost_usd) for c in cached] == sorted((q, 9, Decimal("0.018")) for q in QUERIES)
+    cached = sorted((c.query, c.post_count, c.cost_usd) for c in db.scalars(select(SearchCache)))
+    assert cached == sorted((q, 9, Decimal("0.018")) for q in QUERIES)  # (sorted here: collations order quotes apart)
 
     [entry] = spend(db, run)
     assert (entry.provider, entry.status, entry.estimated_usd, entry.actual_usd, entry.units) == (
@@ -508,9 +508,7 @@ def test_a_search_that_finds_nothing_is_cached_as_searched(db: Session) -> None:
     clock = Clock()
     run = approved_run(db)
     run_jobs(db, worker(clock, StubSearch(posts_per_query=0)), clock)
-    assert [(c.query, c.post_count) for c in db.scalars(select(SearchCache).order_by(SearchCache.query))] == sorted(
-        (q, 0) for q in QUERIES
-    )
+    assert sorted((c.query, c.post_count) for c in db.scalars(select(SearchCache))) == sorted((q, 0) for q in QUERIES)
     assert run_events(db, run)[0].status == RunEventStatus.DONE
     assert fresh(db, run).status == RunStatus.QUALIFYING  # qualify decides what an empty event means
 
