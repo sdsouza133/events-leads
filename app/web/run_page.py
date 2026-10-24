@@ -1,14 +1,16 @@
-"""A run's page: where it stands while it works, for its requester (or an operator) only (issue #8)."""
+"""A run's page: where it stands, for its requester (or an operator) only (issue #8).
+
+While the run awaits approval, the page is its plan (`app/web/plan.py`); while it works, it shows its progress.
+"""
 
 import uuid
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
-from sqlalchemy.orm import Session
 
-from app.config import Settings
-from app.models import Account, Run, RunStatus
-from app.web.common import AppSettings, DbSession, SignedIn, is_operator, page
+from app.models import RunStatus
+from app.web import plan
+from app.web.common import AppSettings, DbSession, SignedIn, page, visible_run
 
 router = APIRouter()
 
@@ -39,13 +41,21 @@ WORKING = frozenset(
 
 @router.get("/runs/{run_id}", response_class=HTMLResponse)
 def run_page(
-    request: Request, run_id: uuid.UUID, *, session: DbSession, settings: AppSettings, account: SignedIn
+    request: Request,
+    run_id: uuid.UUID,
+    *,
+    session: DbSession,
+    settings: AppSettings,
+    account: SignedIn,
+    notice: str = "",
 ) -> HTMLResponse:
     if account is None:
         return page(request, "sign_in_needed.html", {"account": None}, settings, status_code=401)
     run = visible_run(session, run_id, account, settings)
     if run is None:
         return page(request, "not_found.html", {"account": account}, settings, status_code=404)
+    if run.status == RunStatus.AWAITING_APPROVAL:
+        return plan.show(request, run, account, settings, notice=notice)
     context = {"account": account, "run": run, "label": LABELS[run.status], "working": run.status in WORKING}
     return page(request, "run.html", context, settings)
 
@@ -58,14 +68,3 @@ def run_status(run_id: uuid.UUID, *, session: DbSession, settings: AppSettings, 
         return JSONResponse({"error": "not found"}, status_code=404, headers={"Cache-Control": "no-store"})
     body = {"status": str(run.status), "label": LABELS[run.status], "detail": run.status_detail or ""}
     return JSONResponse(body, headers={"Cache-Control": "no-store"})
-
-
-def visible_run(session: Session, run_id: uuid.UUID, account: Account | None, settings: Settings) -> Run | None:
-    """The run, if this account may see it: its requester or an operator. Anyone else gets "not found", never
-    "forbidden", so run ids can't be probed."""
-    if account is None:
-        return None
-    run = session.get(Run, run_id)
-    if run is None or not (run.account_id == account.id or is_operator(account, settings)):
-        return None
-    return run

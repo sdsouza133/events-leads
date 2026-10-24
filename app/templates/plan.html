@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% macro described(key, hint="") -%}
+{%- set ids = ([hint] if hint else []) + ([key ~ "-error"] if errors[key] else []) -%}
+{%- if ids %} aria-describedby="{{ ids | join(' ') }}"{% endif -%}
+{%- if errors[key] %} aria-invalid="true"{% endif -%}
+{%- endmacro %}
+{% macro error(key) -%}
+{%- if errors[key] %}<p class="error" id="{{ key }}-error">{{ errors[key] }}</p>{% endif -%}
+{%- endmacro %}
+{% block title %}Your plan for {{ run.domain }}{% endblock %}
+{% block main %}
+<h1>Your plan for {{ run.domain }}</h1>
+<p class="lead">Check who we'll look for and which events we'll search. Nothing is searched until you approve.</p>
+{% if notice %}<p class="notice" role="status">{{ notice }}</p>{% endif %}
+
+{% if errors %}
+<div class="error-summary" role="alert" aria-labelledby="error-summary-title">
+  <h2 id="error-summary-title">Please check the plan</h2>
+  <ul>
+    {% for key, message in errors.items() %}
+    <li>{% if key == "form" %}{{ message }}{% else %}<a href="#{{ key }}">{{ message }}</a>{% endif %}</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<form method="post" action="/runs/{{ run.id }}/plan" id="plan" novalidate>
+  <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
+
+  <h2>Who you sell to</h2>
+  {% if offering %}<p>From your website: {{ offering }}</p>{% endif %}
+
+  <div class="field">
+    <label for="summary">In a sentence or two</label>
+    {{ error("summary") }}
+    <textarea id="summary" name="summary" rows="3"{{ described("summary") }}>{{ plan.summary }}</textarea>
+  </div>
+
+  <div class="field">
+    <label for="industries">Industries</label>
+    <p class="hint" id="industries-hint">Separated by commas, for example: Software, Financial services</p>
+    {{ error("industries") }}
+    <input type="text" id="industries" name="industries" value="{{ plan.industries }}"{{ described("industries", "industries-hint") }}>
+  </div>
+
+  <fieldset class="field" id="company_sizes"{% if errors.company_sizes %} aria-describedby="company_sizes-error"{% endif %}>
+    <legend>Company sizes, in employees</legend>
+    {{ error("company_sizes") }}
+    <div class="choices">
+      {% for size in sizes %}
+      <label class="choice"><input type="checkbox" name="company_sizes" value="{{ size }}"{% if size in plan.company_sizes %} checked{% endif %}> {{ size }}</label>
+      {% endfor %}
+    </div>
+  </fieldset>
+
+  <div class="field">
+    <label for="regions">Countries or regions</label>
+    <p class="hint" id="regions-hint">Separated by commas, for example: United States, Canada</p>
+    {{ error("regions") }}
+    <input type="text" id="regions" name="regions" value="{{ plan.regions }}"{{ described("regions", "regions-hint") }}>
+  </div>
+
+  <h3 id="buyers">Buyers</h3>
+  <p class="hint">The people you sell to, by job title. To remove one, clear its name and title words.</p>
+  {{ error("buyers") }}
+  {% for buyer in plan.buyers %}{% set key = "buyer-" ~ loop.index0 %}
+  <fieldset class="buyer" id="{{ key }}"{% if errors[key] %} aria-describedby="{{ key }}-error"{% endif %}>
+    <legend>{% if buyer.blank %}Add a buyer{% else %}Buyer {{ loop.index }}{% endif %}</legend>
+    {{ error(key) }}
+    <div class="field">
+      <label for="{{ key }}-label">Who they are</label>
+      <input type="text" id="{{ key }}-label" name="{{ key }}-label" value="{{ buyer.label }}"{% if errors[key] %} aria-invalid="true"{% endif %}>
+    </div>
+    <div class="field">
+      <label for="{{ key }}-keywords">Words in their job titles</label>
+      <p class="hint" id="{{ key }}-hint">Separated by commas, for example: marketing, demand gen</p>
+      <input type="text" id="{{ key }}-keywords" name="{{ key }}-keywords" value="{{ buyer.keywords }}" aria-describedby="{{ key }}-hint"{% if errors[key] %} aria-invalid="true"{% endif %}>
+    </div>
+    <fieldset class="choices">
+      <legend>Seniority (optional)</legend>
+      {% for value, label in seniorities %}
+      <label class="choice"><input type="checkbox" name="{{ key }}-seniorities" value="{{ value }}"{% if value in buyer.seniorities %} checked{% endif %}> {{ label }}</label>
+      {% endfor %}
+    </fieldset>
+  </fieldset>
+  {% endfor %}
+
+  <div class="field">
+    <label for="exclude">Leave out people whose job titles include</label>
+    <p class="hint" id="exclude-hint">Separated by commas, for example: student, recruiter</p>
+    {{ error("exclude") }}
+    <input type="text" id="exclude" name="exclude" value="{{ plan.exclude }}"{{ described("exclude", "exclude-hint") }}>
+  </div>
+
+  <h2 id="events">Events to search</h2>
+  <p>Pick up to {{ max_events }}. For each one we search public LinkedIn posts with the searches shown. Change them if
+  people call the event something else.</p>
+  {{ error("events") }}
+  {% if not plan.events %}
+  <p>We didn't find events from the last 60 days or the next 90. Add one you know about below.</p>
+  {% endif %}
+  {% for event in plan.events %}{% set key = "event-" ~ loop.index0 %}
+  <fieldset class="event" id="{{ key }}"{% if errors[key] %} aria-describedby="{{ key }}-error"{% endif %}>
+    <legend>{{ event.name }}{% if event.own %} (added by you){% endif %}</legend>
+    <p class="small">{{ [event.when, event.location] | select | join(" · ") }}
+      {%- if event.url %}{% if event.when or event.location %} · {% endif %}<a href="{{ event.url }}" target="_blank" rel="noopener noreferrer">Event page<span class="visually-hidden"> (opens in a new tab)</span></a>{% endif %}</p>
+    {% if event.why %}<p>{{ event.why }}</p>{% endif %}
+    {{ error(key) }}
+    <label class="choice"><input type="checkbox" name="{{ key }}-pick" value="1"{% if event.picked %} checked{% endif %}> Search this event<span class="visually-hidden">: {{ event.name }}</span></label>
+    <div class="field">
+      <label for="{{ key }}-queries">LinkedIn searches</label>
+      <p class="hint" id="{{ key }}-hint">One per line, up to {{ max_queries }}. Quotes match a phrase; AND and OR work as on LinkedIn.</p>
+      <textarea id="{{ key }}-queries" name="{{ key }}-queries" rows="6" aria-describedby="{{ key }}-hint{% if errors[key] %} {{ key }}-error{% endif %}"{% if errors[key] %} aria-invalid="true"{% endif %}>{{ event.queries }}</textarea>
+    </div>
+  </fieldset>
+  {% endfor %}
+
+  <fieldset class="event" id="new">
+    <legend>Add an event of your own</legend>
+    <p class="hint">We write its searches from the name and date. You can change them once it's added.</p>
+    <div class="field">
+      <label for="new_name">Event name</label>
+      {{ error("new_name") }}
+      <input type="text" id="new_name" name="new_name" value="{{ plan.new_name }}"{{ described("new_name") }}>
+    </div>
+    <div class="field">
+      <label for="new_date">Date, or the first day (optional)</label>
+      {{ error("new_date") }}
+      <input type="date" id="new_date" name="new_date" value="{{ plan.new_date }}"{{ described("new_date") }}>
+    </div>
+    <div class="field">
+      <label for="new_url">Web address (optional)</label>
+      {{ error("new_url") }}
+      <input type="url" id="new_url" name="new_url" value="{{ plan.new_url }}"{{ described("new_url") }}>
+    </div>
+    <button type="submit" name="action" value="add" class="secondary">Add this event</button>
+  </fieldset>
+
+  <h2>Approve</h2>
+  <p>When you approve, we search LinkedIn for the events you picked, keep the people who were there and match who you
+  sell to, and find their verified work emails. We email you when your list is ready.</p>
+  <button type="submit" name="action" value="approve">Approve and start</button>
+</form>
+{% endblock %}
