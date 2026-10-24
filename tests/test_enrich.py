@@ -652,10 +652,10 @@ def test_the_requester_is_emailed_the_link_once(db: Session) -> None:
     run_jobs(db, w, clock)
 
     [sent] = mailer.outbox
-    assert (sent.to, sent.key, sent.subject) == (requester(db, run), f"results:{run.id}", "Your event leads are ready")
-    assert "We found 2 people who went to, or are going to, Pipeline Summit" in sent.text
+    assert (sent.to, sent.key, sent.subject) == (requester(db, run), f"results:{run.id}", "Your list is ready: 2 leads")
+    assert "Your list is ready: 2 leads from Pipeline Summit." in sent.text
     assert f"https://leads.example/runs/{run.id}\n" in sent.text
-    assert "available for 30 days" in sent.text
+    assert "It's yours for 30 days." in sent.text
 
     [job] = jobs(db, DELIVER)
     assert job.status == JobStatus.DONE
@@ -669,8 +669,8 @@ def test_a_run_that_found_nobody_says_so(db: Session) -> None:
     mailer, clock = FakeMailer(), Clock()
     run_jobs(db, worker(clock, StubApollo(), mailer=mailer), clock)
     [sent] = mailer.outbox
-    assert sent.subject == "Your event leads search has finished"
-    assert "found nobody who matches your ICP" in sent.text
+    assert sent.subject == "Your Event Leads search is done"
+    assert "didn't find anyone there who matches your buyers" in sent.text
 
 
 def test_no_email_for_a_run_canceled_before_it_went_out(db: Session) -> None:

@@ -44,8 +44,8 @@ It is a lead magnet for B2B Dynamics: no sales pitch inside the product. The val
   once. Free-mail addresses (gmail.com and similar) are refused. The email's domain must match the website's.
 - **FR-2 Site analysis.** Read up to 5 pages of the website (home plus pages like About, Customers, Pricing) and produce
   an ICP and keyword suggestions. Must handle sites that block us or are mostly JavaScript by saying so, not guessing.
-- **FR-3 Event discovery.** Suggest 3–8 events with name, dates, city or "online", URL and a one-line reason. Every event
-  must come from a web search result, not from the model's memory.
+- **FR-3 Event discovery.** Suggest 3–6 events, at most one per series, with name, dates, city or "online", URL and a
+  one-line reason. Every event must come from a web search result, not from the model's memory.
 - **FR-4 Approval.** The requester can edit the ICP, choose up to 3 events, add their own (name, date, URL), and edit
   keywords before anything is collected.
 - **FR-5 Collection.** Search public LinkedIn posts for each approved event. No logged-in scraping, no cookies.

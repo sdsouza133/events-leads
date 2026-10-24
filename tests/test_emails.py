@@ -22,7 +22,8 @@ def test_the_results_email_names_the_events_and_counts_the_people() -> None:
         days=30,
     )
     assert email.key == f"results:{RUN_ID}"
-    assert "We found 1 person who went to, or are going to, SaaStr Annual, INBOUND and Pipeline Summit," in email.text
+    assert email.subject == "Your list is ready: 1 lead"
+    assert "Your list is ready: 1 lead from SaaStr Annual, INBOUND and Pipeline Summit." in email.text
 
 
 def test_a_run_without_events_on_record_still_reads_well() -> None:
