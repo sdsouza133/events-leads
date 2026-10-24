@@ -12,13 +12,13 @@ from typing import Any
 import pytest
 from pydantic import BaseModel
 from sqlalchemy import select
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from app import budget, queue, worker
 from app.config import Settings
 from app.db import session_scope
-from app.models import Job, JobStatus, Run, SpendEntry, SpendStatus
+from app.models import Account, Job, JobStatus, Run, SpendEntry, SpendStatus
 from app.pipeline.base import DONE, Defer, JobContext, JobKind, Outcome, Payload
 from app.providers.registry import build_providers
 from app.providers.types import ProviderError
@@ -188,6 +188,77 @@ def test_housekeeping_requeues_stale_jobs_and_gives_up_on_exhausted_ones(db: Ses
     assert run.status_detail == "worker died"
 
 
+def broken_hook(ctx: JobContext, session: Session, payload: Payload) -> None:
+    raise KeyError("run_id")  # e.g. a payload the hook didn't expect
+
+
+def test_a_failing_give_up_hook_still_records_the_job_as_failed(db: Session) -> None:
+    job_id = one_job(db, max_attempts=1)
+
+    def handle(ctx: JobContext, session: Session, payload: Payload) -> Outcome:
+        raise RuntimeError("a bug")
+
+    make_worker(handle, on_give_up=broken_hook).run_once()
+    failed = job(db, job_id)
+    assert (failed.status, failed.last_error) == (JobStatus.FAILED, "RuntimeError: a bug")
+
+
+def test_one_failing_give_up_hook_does_not_hold_back_the_other_stale_jobs(db: Session) -> None:
+    run = make_run(db)
+    broken_id = queue.enqueue(db, "broken", run_after=NOW, max_attempts=1)
+    fine_id = one_job(db, run=run, max_attempts=1)
+    for _ in range(2):
+        queue.claim(db, "dead-worker", now=NOW)
+    db.commit()
+
+    later = NOW + timedelta(seconds=Settings().worker_stale_after_seconds + 1)
+    kinds = {
+        "broken": JobKind(note_on_run("x"), on_give_up=broken_hook),
+        "test": JobKind(note_on_run("x"), on_give_up=write_note("worker died")),
+    }
+    Worker(context(now=later), kinds).maintain()
+    assert broken_id is not None
+    assert job(db, broken_id).status == job(db, fine_id).status == JobStatus.FAILED
+    db.refresh(run)
+    assert run.status_detail == "worker died"
+
+
+def test_an_unexpected_error_between_jobs_does_not_stop_the_worker(monkeypatch: pytest.MonkeyPatch) -> None:
+    w = Worker(context(), {})
+    rounds: list[str] = []
+
+    def maintain_if_due() -> None:
+        rounds.append("housekeeping")
+        if len(rounds) == 1:
+            raise RuntimeError("a bug in housekeeping")
+        w.stop()
+
+    monkeypatch.setattr(w, "maintain_if_due", maintain_if_due)
+    monkeypatch.setattr(w, "run_once", lambda: True)
+    w.run_forever()
+    assert rounds == ["housekeeping", "housekeeping"]
+
+
+def test_database_errors_are_described_without_the_values_involved(db: Session) -> None:
+    email = "jane.doe@acme.example"
+    db.add(Account(email=email, domain="acme.example"))
+    db.commit()
+    db.add(Account(email=email, domain="acme.example"))
+    with pytest.raises(IntegrityError) as caught:
+        db.commit()
+    db.rollback()
+    described = describe(caught.value)
+    assert described.startswith("IntegrityError: duplicate key value violates unique constraint")
+    assert described.endswith("(23505)")
+    assert "jane.doe" not in described
+    assert "jane.doe" not in str(caught.value).split("DETAIL")[0]  # bound parameters are hidden too
+
+
+def test_a_database_error_from_the_client_side_is_described_by_its_first_line() -> None:
+    error = OperationalError("SELECT 1", {}, Exception("connection refused\n\tIs the server running?"))
+    assert describe(error) == "OperationalError: connection refused"
+
+
 def test_housekeeping_closes_reservations_left_open(db: Session) -> None:
     spend_id = budget.reserve(db, provider="claude", estimated_usd=Decimal("0.15"), daily_cap_usd=Decimal(20))
     budget.mark_started(db, spend_id)
@@ -227,7 +298,7 @@ def test_the_heartbeat_stops_once_the_job_belongs_to_someone_else(db: Session) -
     db.commit()
     beat = worker._Heartbeat(job_id, "worker-a", every_seconds=0.05)
     with beat:
-        time.sleep(0.2)
+        beat._thread.join(timeout=5)  # it ends on its own once it finds the job gone
         assert not beat._thread.is_alive()
     assert job(db, job_id).locked_at == NOW
 

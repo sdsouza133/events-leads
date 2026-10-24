@@ -23,6 +23,7 @@ def get_engine() -> Engine:
     settings = get_settings()
     return create_engine(
         settings.sqlalchemy_url,
+        hide_parameters=True,  # a failed statement's message would otherwise quote its values (emails, say)
         pool_size=settings.db_pool_size,
         max_overflow=settings.db_max_overflow,
         pool_pre_ping=True,  # poolers drop idle connections; check before use instead of failing a request

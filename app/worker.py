@@ -22,14 +22,15 @@ from types import TracebackType
 from typing import Any
 
 from pydantic import ValidationError
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import DBAPIError, SQLAlchemyError
+from sqlalchemy.orm import Session
 
 from app import budget, queue
 from app.config import get_settings
 from app.db import get_sessionmaker, session_scope
 from app.logging_config import configure_logging
 from app.models import JobStatus
-from app.pipeline.base import Defer, JobContext, JobKind
+from app.pipeline.base import Defer, GiveUp, JobContext, JobKind, Payload
 from app.pipeline.jobs import JOBS
 from app.providers.registry import build_providers
 from app.providers.types import ProviderError
@@ -46,11 +47,18 @@ def worker_name() -> str:
 
 
 def describe(exc: BaseException) -> str:
-    """A failure, for the job's last_error and the logs. A validation error's own message quotes the input it
-    rejected, which can be someone's personal data, so only where it failed is kept."""
+    """A failure, for the job's last_error and the logs, without the personal data some messages quote: a validation
+    error's names the input it rejected, so only where it failed is kept; a database error's detail names the values
+    involved (which email already exists, say), so only its first line and SQLSTATE are kept."""
     if isinstance(exc, ValidationError):
         where = ", ".join(".".join(str(part) for part in error["loc"]) or "(root)" for error in exc.errors())
         return f"ValidationError: {exc.error_count()} problem(s) at {where}"
+    if isinstance(exc, DBAPIError):
+        primary = getattr(getattr(exc.orig, "diag", None), "message_primary", None)
+        if primary:
+            return f"{type(exc).__name__}: {primary} ({getattr(exc.orig, 'sqlstate', None)})"
+        first_line = str(exc.orig).strip().splitlines()[:1]  # a client-side error: connection refused, say
+        return f"{type(exc).__name__}: {first_line[0] if first_line else type(exc.orig).__name__}"
     return f"{type(exc).__name__}: {exc}"
 
 
@@ -71,8 +79,11 @@ class Worker:
             try:
                 self.maintain_if_due()
                 worked = self.run_once()
-            except SQLAlchemyError:
-                log.exception("database unavailable, waiting before trying again", extra={"worker": self.name})
+            except SQLAlchemyError as exc:  # no traceback: a database error's can quote the values involved
+                log.error("database unavailable, waiting before trying again", extra=self._failure(exc))
+                worked = False
+            except Exception:  # a bug outside any job (in housekeeping, say): keep the worker running
+                log.exception("unexpected error in the worker loop", extra={"worker": self.name})
                 worked = False
             if not worked:
                 self._stop.wait(self.ctx.settings.worker_poll_seconds)
@@ -118,7 +129,7 @@ class Worker:
         retryable = exc.retryable if isinstance(exc, ProviderError) else True
         error = describe(exc)
         log.warning("job failed", extra={**context, "error": error, "retryable": retryable})
-        if not isinstance(exc, ProviderError | ValidationError):  # our own bug: keep the traceback
+        if not isinstance(exc, ProviderError | ValidationError | SQLAlchemyError):  # our own bug: keep the traceback
             log.error("unexpected error in a job", exc_info=True, extra=context)
         with session_scope() as session:
             jitter = random.Random()  # noqa: S311 (spreads retries out; nothing secret)
@@ -126,7 +137,20 @@ class Worker:
                 session, job_id, self.name, error, retryable=retryable, now=self.ctx.now(), jitter=jitter
             )
             if status == JobStatus.FAILED and kind.on_give_up is not None:
-                kind.on_give_up(self.ctx, session, payload)
+                self._give_up(kind.on_give_up, session, payload, context)
+
+    def _give_up(self, hook: GiveUp, session: Session, payload: Payload, context: dict[str, Any]) -> None:
+        """Run a give-up hook in a savepoint of its own: if it fails, the job is still recorded as failed, and the
+        other jobs housekeeping is releasing still are."""
+        try:
+            with session.begin_nested():
+                hook(self.ctx, session, payload)
+        except Exception as exc:
+            database = isinstance(exc, SQLAlchemyError)
+            log.error("a give-up hook failed", exc_info=not database, extra={**context, "error": describe(exc)})
+
+    def _failure(self, exc: BaseException) -> dict[str, Any]:
+        return {"worker": self.name, "error": describe(exc)}
 
     def maintain_if_due(self) -> None:
         now = time.monotonic()
@@ -143,7 +167,8 @@ class Worker:
             for job in released.given_up:
                 kind = self.kinds.get(job.kind)
                 if kind is not None and kind.on_give_up is not None:
-                    kind.on_give_up(self.ctx, session, job.payload)
+                    context = {"job_id": job.id, "kind": job.kind, "worker": self.name}
+                    self._give_up(kind.on_give_up, session, job.payload, context)
         with session_scope() as session:
             closed = budget.sweep(session, RESERVATIONS_OPEN_AT_MOST, now=self.ctx.now())
         if released.requeued or released.given_up or closed:
@@ -182,8 +207,8 @@ class _Heartbeat:
             try:
                 with session_scope() as session:
                     alive = queue.heartbeat(session, self._job_id, self._worker)
-            except SQLAlchemyError:
-                log.warning("heartbeat failed", exc_info=True, extra={"job_id": self._job_id})
+            except SQLAlchemyError as exc:
+                log.warning("heartbeat failed", extra={"job_id": self._job_id, "error": describe(exc)})
                 continue
             if not alive:
                 log.warning("job is no longer held by this worker", extra={"job_id": self._job_id})
