@@ -74,6 +74,7 @@ class Settings(BaseSettings):
     classify_model: str = "claude-opus-5-5"  # claude-haiku-5-5 costs about 1/40 as much; the operator's call
     analyze_effort: Effort = "medium"
     classify_effort: Effort = "low"
+    # Web searches for one event research, plus at most one Claude asked for just as a long turn paused.
     max_web_searches: int = Field(default=6, ge=1, le=20)
     llm_fallbacks: bool = True
     apify_token: SecretStr | None = None

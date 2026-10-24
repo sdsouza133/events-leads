@@ -251,7 +251,12 @@ class AnthropicLlm:
         notes: list[str] = []
         results: dict[str, str | None] = {}
         cost = Decimal(0)
-        for _ in range(MAX_PAUSE_CONTINUATIONS + 1):
+        # The search limit is for the whole research, but max_uses caps one request, and it has to stay the same on
+        # every part: a changed tool definition invalidates the thinking in the paused turn (a 400 where the API
+        # enforces that). So a turn that pauses is only finished: tool_choice none (which that check leaves out) has
+        # Claude write up what it found without searching again. A search it asked for just as the turn paused still
+        # runs at the start of the next part, so the research makes at most one search more than the limit.
+        for part in range(MAX_PAUSE_CONTINUATIONS + 1):
             try:
                 response, call_cost = self._call(
                     model=self._analyze_model,
@@ -260,6 +265,7 @@ class AnthropicLlm:
                     system=RESEARCH_SYSTEM,
                     messages=messages,
                     tools=[{**WEB_SEARCH, "max_uses": self._max_web_searches}],
+                    tool_choice=None if part == 0 else {"type": "none"},
                     timeout=300.0,
                 )
             except ProviderError as exc:
@@ -269,7 +275,7 @@ class AnthropicLlm:
             if response.stop_reason != "pause_turn":
                 break
             # A long server-tool turn paused: send it back as-is, after the parts already sent (consecutive
-            # assistant messages form one turn), and let Claude carry on.
+            # assistant messages form one turn), for Claude to finish.
             messages = [*messages, {"role": "assistant", "content": response.content}]
         return "\n".join(notes), results, cost
 
@@ -283,6 +289,7 @@ class AnthropicLlm:
         messages: list[dict[str, Any]],
         output_format: type[BaseModel] | None = None,
         tools: list[dict[str, Any]] | None = None,
+        tool_choice: dict[str, Any] | None = None,
         timeout: float | None = None,
     ) -> tuple[Any, Decimal]:
         """The response and what it was billed. Failures after Claude has answered carry that cost too."""
@@ -295,6 +302,8 @@ class AnthropicLlm:
         }
         if tools:
             kwargs["tools"] = tools
+        if tool_choice:
+            kwargs["tool_choice"] = tool_choice
         if self._fallbacks and model in SERVER_FALLBACK_MODELS:
             kwargs["betas"] = [FALLBACK_BETA]
             kwargs["fallbacks"] = "default"
@@ -370,12 +379,17 @@ def _collect(content: Sequence[Any], notes: list[str], results: dict[str, str | 
             # On a failed search `content` is a single error object, not a list; there's nothing to collect then.
             for result in block.content:
                 url = getattr(result, "url", None)
-                if url:
-                    results.setdefault(_canonical(url), getattr(result, "title", None))
+                key = _canonical(url) if url else None
+                if key:
+                    results.setdefault(key, getattr(result, "title", None))
 
 
-def _canonical(url: str) -> str:
-    parts = urlsplit(url.strip())
+def _canonical(url: str) -> str | None:
+    """A URL in one form for comparing, or None when it can't be read (e.g. an unclosed IPv6 bracket)."""
+    try:
+        parts = urlsplit(url.strip())
+    except ValueError:
+        return None
     return f"{parts.scheme.lower()}://{(parts.netloc or '').lower()}{parts.path.rstrip('/') or ''}" + (
         f"?{parts.query}" if parts.query else ""
     )
@@ -386,7 +400,8 @@ def _real_events(wire: list[_WireEvent], result_urls: set[str], today: date) -> 
     kept: list[EventSuggestion] = []
     names: set[str] = set()
     for item in wire:
-        if _canonical(item.source_url) not in result_urls:
+        source = _canonical(item.source_url)
+        if source is None or source not in result_urls:
             continue  # not traceable to a search result: possibly from memory
         ends, starts = item.end_date or item.start_date, item.start_date or item.end_date
         if (ends and ends < earliest) or (starts and starts > latest):
