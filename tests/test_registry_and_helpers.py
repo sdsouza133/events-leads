@@ -38,6 +38,12 @@ def test_real_providers_with_keys() -> None:
     assert isinstance(with_mail.mailer, ResendMailer)
 
 
+def test_a_blank_key_counts_as_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "")  # e.g. a CI secret or Railway variable that was never filled in
+    with pytest.raises(ProviderConfigError, match=r"needs ANTHROPIC_API_KEY$"):
+        build_providers(Settings(providers="real", apify_token="b", apollo_api_key="c"))
+
+
 def test_reoon_key_is_required_only_when_enabled() -> None:
     settings = Settings(
         providers="real", anthropic_api_key="a", apify_token="b", apollo_api_key="c", reoon_enabled=True
