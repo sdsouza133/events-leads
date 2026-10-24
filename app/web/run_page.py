@@ -1,6 +1,7 @@
 """A run's page: where it stands, for its requester (or an operator) only (issue #8).
 
-While the run awaits approval, the page is its plan (`app/web/plan.py`); while it works, it shows its progress.
+While the run awaits approval, the page is its plan (`app/web/plan.py`); while it works, it shows its progress;
+once it has finished, it is the list (`app/web/results.py`).
 """
 
 import uuid
@@ -9,7 +10,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from app.models import RunStatus
-from app.web import plan
+from app.web import plan, results
 from app.web.common import AppSettings, DbSession, SignedIn, page, visible_run
 
 router = APIRouter()
@@ -56,6 +57,8 @@ def run_page(
         return page(request, "not_found.html", {"account": account}, settings, status_code=404)
     if run.status == RunStatus.AWAITING_APPROVAL:
         return plan.show(request, run, account, settings, notice=notice)
+    if run.status in (RunStatus.READY, RunStatus.EXPIRED):
+        return results.show(request, session, run, account, settings)
     context = {"account": account, "run": run, "label": LABELS[run.status], "working": run.status in WORKING}
     return page(request, "run.html", context, settings)
 

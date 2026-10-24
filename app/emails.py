@@ -33,7 +33,7 @@ def results_email(
 ) -> OutgoingEmail:
     """The link to a finished run. Its key makes Resend deliver it once, however often a retry sends it."""
     link = run_url(base_url, run_id)
-    where = _together(events) or "your events"
+    where = together(events) or "your events"
     if leads:
         people = "1 person" if leads == 1 else f"{leads} people"
         subject = "Your event leads are ready"
@@ -50,7 +50,7 @@ def results_email(
     return OutgoingEmail(to=to, subject=subject, text=f"Hi,\n\n{body}\n\nEvent Leads\n", key=f"results:{run_id}")
 
 
-def _together(names: list[str]) -> str:
+def together(names: list[str]) -> str:
     """'A', 'A and B', 'A, B and C'."""
     if len(names) <= 1:
         return "".join(names)
