@@ -142,10 +142,11 @@ def save_plan(
 ) -> Response:
     if account is None:
         return page(request, "sign_in_needed.html", {"account": None}, settings, status_code=401)
-    if common.visible_run(session, run_id, account, settings) is None:
+    visible = common.visible_run(session, run_id, account, settings)
+    if visible is None:
         return page(request, "not_found.html", {"account": account}, settings, status_code=404)
-    back = RedirectResponse(f"/runs/{run_id}", status_code=303)
-    run = runs.locked(session, run_id)  # as it is now, and no other request changes it until this one commits
+    back = RedirectResponse(f"/runs/{visible.id}", status_code=303)
+    run = runs.locked(session, visible.id)  # as it is now, and no other request changes it until this one commits
     if run is None or run.status != RunStatus.AWAITING_APPROVAL:
         return back  # approved already (a second click, say) or stopped: its page says where it stands
     posted = _posted(form, run)
@@ -269,11 +270,12 @@ def _icp(plan: Plan, errors: dict[str, str]) -> Icp | None:
 
 
 def _events(run: Run, plan: Plan, errors: dict[str, str]) -> list[dict[str, Any]]:
-    """The stored events with the posted picks and searches. A picked event's searches must be usable."""
+    """The stored events with the posted picks and searches. Searches must be usable, except an unpicked event's
+    left empty."""
     events = []
     for i, (stored, row) in enumerate(zip(run.suggested_events or [], plan.events, strict=True)):
         queries = _lines(row.queries)
-        if row.picked and not _searches_ok(queries):
+        if (row.picked or queries) and not _searches_ok(queries):
             errors[f"event-{i}"] = MESSAGES["searches"]
         events.append({**stored, "picked": row.picked, "queries": queries})
     return events
