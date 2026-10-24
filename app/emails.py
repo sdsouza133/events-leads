@@ -15,7 +15,7 @@ def sign_in_email(*, to: str, base_url: str, token: str, domain: str | None, min
     """The one-time sign-in link (ADR 0004). Its key comes from the token, so a retry that makes a new link sends a
     new email rather than being refused as a different email with the same key."""
     link = f"{base_url.rstrip('/')}/sign-in?token={token}"
-    purpose = f"see the plan for {domain}" if domain else "see your runs"
+    purpose = f"see your list for {domain}" if domain else "continue"
     body = (
         f"Use this link to sign in and {purpose}:\n{link}\n\nIt works once, within {minutes} minutes. "
         "If you didn't ask for it, you can ignore this email."

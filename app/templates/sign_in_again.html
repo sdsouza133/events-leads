@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Get a new sign-in link{% endblock %}
+{% block main %}
+<h1>Get a new sign-in link</h1>
+<p class="lead">Enter the email address you asked for your list with. We'll email it a link that signs you in to
+your list.</p>
+
+{% if errors %}
+<div class="error-summary" role="alert" aria-labelledby="error-summary-title">
+  <h2 id="error-summary-title">Please check the form</h2>
+  <ul>
+    {% if errors.form %}<li>{{ errors.form }}</li>{% endif %}
+    {% if errors.email %}<li><a href="#email">{{ errors.email }}</a></li>{% endif %}
+  </ul>
+</div>
+{% endif %}
+
+<form method="post" action="/sign-in-again" novalidate>
+  <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
+  <div class="field">
+    <label for="email">Your work email</label>
+    {% if errors.email %}<p class="error" id="email-error">{{ errors.email }}</p>{% endif %}
+    <input id="email" name="email" type="email" autocomplete="email" spellcheck="false"
+           value="{{ form.email or '' }}" required
+           {% if errors.email %}aria-describedby="email-error" aria-invalid="true"{% endif %}>
+  </div>
+  <button type="submit">Email me a sign-in link</button>
+</form>
+{% endblock %}

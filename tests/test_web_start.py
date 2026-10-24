@@ -4,6 +4,7 @@ import logging
 import re
 import uuid
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
@@ -14,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app import auth
 from app.config import Settings, get_settings
+from app.db import get_sessionmaker
 from app.main import create_app
 from app.models import Account, Job, JobStatus, LoginToken, OutboxEmail, Run, RunStatus, UserSession
 from app.pipeline.analyze import ANALYZE_SITE
@@ -165,7 +167,9 @@ def test_too_many_attempts_are_refused(db: Session) -> None:
 def test_a_company_that_used_its_free_run_is_told_so(client: TestClient, db: Session) -> None:
     make_run(db, domain="acmewidgets.com", status=RunStatus.READY)
     db.commit()
-    assert "acmewidgets.com has already used its free list" in ask(client)
+    page = ask(client)
+    assert "acmewidgets.com has already used its free list" in page
+    assert 'href="/sign-in-again"' in page  # whoever asked for it can still get back in
     assert jobs(db, SEND_SIGN_IN) == []
 
 
@@ -246,6 +250,25 @@ def test_a_link_works_once(client: TestClient, db: Session, settings: Settings) 
     assert "This link has expired" in again.text
 
 
+def test_a_link_pressed_twice_at_once_signs_in_once(client: TestClient, db: Session, settings: Settings) -> None:
+    ask(client)
+    send_links(settings)
+    token = token_sent_to(db)
+    form = {"token": token, "csrf": csrf(client)}
+    first = get_sessionmaker()()  # the first press: it has used the link and not committed yet
+    pool = ThreadPoolExecutor(max_workers=1)
+    try:
+        assert auth.redeem_link(first, token, now=datetime.now(UTC)) is not None
+        second = pool.submit(client.post, "/sign-in", data=form, follow_redirects=False)
+        with pytest.raises(TimeoutError):
+            second.result(timeout=1)  # the second press waits for the link's row lock
+        first.commit()
+        assert second.result(timeout=10).status_code == 400
+    finally:
+        first.close()  # if an assertion failed before the commit, this lets the waiting press finish
+        pool.shutdown()
+
+
 def test_an_expired_link_says_so_before_anyone_presses_the_button(
     client: TestClient, db: Session, settings: Settings
 ) -> None:
@@ -258,6 +281,7 @@ def test_an_expired_link_says_so_before_anyone_presses_the_button(
     response = client.get(f"/sign-in?token={token}")
     assert response.status_code == 400
     assert "This link has expired" in response.text
+    assert 'href="/sign-in-again"' in response.text
 
 
 def test_a_sign_in_without_the_page_s_token_is_refused(client: TestClient, db: Session, settings: Settings) -> None:
@@ -283,6 +307,93 @@ def test_only_one_of_two_pending_runs_gets_the_company_s_free_run(
     assert first.status == RunStatus.ANALYZING
     assert (second.status, second.status_detail) == (RunStatus.CANCELED, start.FREE_RUN_USED)
     assert len(jobs(db, ANALYZE_SITE)) == 1
+
+
+def test_two_sign_ins_at_once_cannot_both_take_the_company_s_free_run(
+    client: TestClient, db: Session, settings: Settings
+) -> None:
+    ask(client, email="jo@acmewidgets.com")
+    ask(client, email="sam@acmewidgets.com")
+    send_links(settings)
+    jo, sam = token_sent_to(db, "jo@acmewidgets.com"), token_sent_to(db, "sam@acmewidgets.com")
+    form = {"token": sam, "csrf": csrf(client)}
+    first = get_sessionmaker()()  # Jo's sign-in: it holds the company's lock and has started Jo's run, uncommitted
+    pool = ThreadPoolExecutor(max_workers=1)
+    try:
+        now = datetime.now(UTC)
+        link = auth.redeem_link(first, jo, now=now)
+        assert link is not None
+        assert link.run_id is not None
+        start._begin(first, settings, link.run_id, now=now)
+        second = pool.submit(client.post, "/sign-in", data=form, follow_redirects=False)
+        with pytest.raises(TimeoutError):
+            second.result(timeout=1)  # Sam's sign-in waits for the company's lock
+        first.commit()
+        assert second.result(timeout=10).status_code == 303
+    finally:
+        first.close()  # if an assertion failed before the commit, this lets the waiting sign-in finish
+        pool.shutdown()
+
+    jo_run, sam_run = runs(db)
+    assert jo_run.status == RunStatus.ANALYZING
+    assert (sam_run.status, sam_run.status_detail) == (RunStatus.CANCELED, start.FREE_RUN_USED)
+    assert len(jobs(db, ANALYZE_SITE)) == 1
+
+
+# ------------------------------------------------------------------------------------------- signing in again
+def test_someone_signed_out_gets_a_new_link_to_the_same_run(
+    client: TestClient, db: Session, settings: Settings
+) -> None:
+    run = signed_in_run(client, db, settings)
+    client.post("/sign-out", data={"csrf": csrf(client)})
+    assert 'href="/sign-in-again"' in client.get(f"/runs/{run.id}").text  # the page says how to get back in
+    assert client.get("/sign-in-again").status_code == 200
+
+    response = client.post("/sign-in-again", data={"email": EMAIL, "csrf": csrf(client)})
+    assert response.status_code == 200
+    assert "Check your email" in response.text
+    send_links(settings)
+    assert sign_in(client, token_sent_to(db)) == f"/runs/{run.id}"
+    assert [r.id for r in runs(db)] == [run.id]  # no new run
+    assert len(jobs(db, ANALYZE_SITE)) == 1  # and the run wasn't started again
+
+
+def test_asking_for_a_new_link_does_not_say_who_has_an_account(client: TestClient, db: Session) -> None:
+    response = client.post("/sign-in-again", data={"email": "nobody@acmewidgets.com", "csrf": csrf(client)})
+    assert response.status_code == 200
+    assert "If <strong>nobody@acmewidgets.com</strong> has asked us for a list" in response.text
+    assert jobs(db, SEND_SIGN_IN) == []
+
+
+def test_someone_whose_runs_were_deleted_signs_in_to_the_start_page(
+    client: TestClient, db: Session, settings: Settings
+) -> None:
+    db.add(Account(email=EMAIL, domain="acmewidgets.com"))
+    db.commit()
+    client.post("/sign-in-again", data={"email": EMAIL, "csrf": csrf(client)})
+    send_links(settings)
+    assert sign_in(client, token_sent_to(db)) == "/"
+
+
+def test_a_new_link_needs_the_page_s_token_and_an_address(client: TestClient, db: Session) -> None:
+    ask(client)
+    forged = client.post("/sign-in-again", data={"email": EMAIL, "csrf": "forged"})
+    assert forged.status_code == 400
+    unreadable = client.post("/sign-in-again", data={"email": "jo", "csrf": csrf(client)})
+    assert unreadable.status_code == 400
+    assert 'aria-invalid="true"' in unreadable.text
+    assert len(jobs(db, SEND_SIGN_IN)) == 1  # only the form's
+
+
+def test_new_links_count_toward_the_hourly_limit(db: Session) -> None:
+    app = create_app()
+    app.dependency_overrides[get_settings] = lambda: Settings(sign_ups_per_hour=2)
+    client = TestClient(app)
+    ask(client)
+    client.post("/sign-in-again", data={"email": EMAIL, "csrf": csrf(client)})
+    response = client.post("/sign-in-again", data={"email": EMAIL, "csrf": csrf(client)})
+    assert response.status_code == 429
+    assert "Too many attempts" in response.text
 
 
 # --------------------------------------------------------------------------------------------- the run page

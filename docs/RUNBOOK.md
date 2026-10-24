@@ -45,7 +45,8 @@ What to do when operating the service. Keep it current: every incident should le
 
 - Look up the account by email and its `send_sign_in` jobs (payload `account_id`). A job `failed` names Resend's
   answer in `last_error`; `done` means Resend accepted it, so check Resend's dashboard for a bounce or a spam block.
-- Asking again on the start page sends a new link (5 times an hour per address). Links last 30 minutes and work once.
+- The requester can ask for a new link at `/sign-in-again`, which every "link expired" and "sign in" page points to
+  (5 times an hour per address, counted with the start form). Links last 30 minutes and work once.
 - Previews keep emails instead of sending them: operators read them on `/dev/outbox`.
 
 ## Pausing spend immediately

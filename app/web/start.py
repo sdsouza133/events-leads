@@ -3,7 +3,8 @@
 The form takes a website and a work email on the same company domain. Nothing is spent until the requester signs
 in from the link we email: only then does the run start reading their website, and only if the company hasn't used
 its free run. Sign-in itself is a POST from a page the link opens, so the mail scanners that open links on their
-own can't use up a one-time link.
+own can't use up a one-time link. Someone who has asked for a run before gets a new link from /sign-in-again,
+which signs them in to their latest run and never starts another.
 """
 
 import logging
@@ -82,11 +83,52 @@ def start(
     run.website_url = url
     session.add(run)
     session.flush()
-    payload = {"account_id": str(requester.id), "run_id": str(run.id)}
-    queue.enqueue(session, SEND_SIGN_IN, payload, run_after=common.now(), dedupe_key=f"{SEND_SIGN_IN}:{run.id}")
+    _send_link(session, requester.id, run.id)
     session.commit()
     log.info("sign-in link requested", extra={"account_id": str(requester.id), "run_id": str(run.id)})
-    return page(request, "check_email.html", {"account": account, "email": address}, settings)
+    return page(request, "check_email.html", {"account": account, "email": address, "starting": True}, settings)
+
+
+@router.get("/sign-in-again", response_class=HTMLResponse)
+def sign_in_again_page(request: Request, *, account: SignedIn, settings: AppSettings) -> HTMLResponse:
+    return page(request, "sign_in_again.html", {"account": account, "form": {}, "errors": {}}, settings)
+
+
+@router.post("/sign-in-again", response_class=HTMLResponse)
+def sign_in_again(
+    request: Request,
+    *,
+    session: DbSession,
+    settings: AppSettings,
+    account: SignedIn,
+    email: Annotated[str, Form()] = "",
+    csrf: Annotated[str, Form()] = "",
+) -> HTMLResponse:
+    """A new link for someone who has asked for a run before: their link expired or was opened on another device,
+    or they signed out. It signs them in to their latest run. The page doesn't say whether the address is known."""
+    address = email.strip().lower()
+
+    def again(errors: dict[str, str], status_code: int) -> HTMLResponse:
+        context = {"account": account, "form": {"email": email}, "errors": errors}
+        return page(request, "sign_in_again.html", context, settings, status_code=status_code)
+
+    if not common.csrf_ok(request, csrf):
+        return again({"form": "This page had expired. Please send the form again."}, 400)
+    if not _plausible_address(address):
+        return again({"email": "Enter the email address you asked for your list with."}, 400)
+    if not _within_limits(session, settings, request, address):
+        session.commit()  # the attempt still counts
+        log.warning("sign-in link requests over the limit")  # the rate_limits table shows which IP or address hash
+        return again({"form": "Too many attempts. Please try again in an hour."}, 429)
+    requester = session.scalars(select(Account).where(Account.email == address)).first()
+    if requester is not None:
+        latest = session.scalars(
+            select(Run.id).where(Run.account_id == requester.id).order_by(Run.created_at.desc()).limit(1)
+        ).first()
+        _send_link(session, requester.id, latest)
+        log.info("sign-in link requested", extra={"account_id": str(requester.id)})
+    session.commit()
+    return page(request, "check_email.html", {"account": account, "email": address, "starting": False}, settings)
 
 
 @router.get("/sign-in", response_class=HTMLResponse)
@@ -174,12 +216,19 @@ def _plausible_address(address: str) -> bool:
 
 
 def _within_limits(session: Session, settings: Settings, request: Request, address: str) -> bool:
-    """SIGN_UPS_PER_HOUR from one IP address, and to one email address (so nobody can flood someone's inbox).
-    The address is kept only as a hash in the counter's key."""
+    """SIGN_UPS_PER_HOUR sign-in emails asked for from one IP address, and to one email address (so nobody can
+    flood someone's inbox). The address is kept only as a hash in the counter's key."""
     limit = settings.sign_ups_per_hour
     by_ip = ratelimit.hit(session, f"sign-up:ip:{common.client_ip(request)}", limit=limit, window=HOUR)
     by_email = ratelimit.hit(session, f"sign-up:email:{auth.digest(address)[:40]}", limit=limit, window=HOUR)
     return by_ip and by_email
+
+
+def _send_link(session: Session, account_id: uuid.UUID, run_id: uuid.UUID | None) -> None:
+    """Queue the email with a sign-in link: the worker makes the link, so its token never passes through here."""
+    payload = {"account_id": str(account_id), "run_id": str(run_id) if run_id else None}
+    key = f"{SEND_SIGN_IN}:{run_id or account_id}"  # asking twice before it goes out sends one email
+    queue.enqueue(session, SEND_SIGN_IN, payload, run_after=common.now(), dedupe_key=key)
 
 
 def _account(session: Session, address: str, domain: str) -> Account:

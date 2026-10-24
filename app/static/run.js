@@ -11,20 +11,29 @@
   var detail = document.getElementById("run-detail");
   var every = 5000;
 
+  function show(body) {
+    if (body.status !== status) {
+      window.location.reload(); // the run moved on: the page shows its new stage
+      return;
+    }
+    if (detail && detail.textContent !== body.detail) {
+      detail.textContent = body.detail;
+    }
+    window.setTimeout(check, every);
+  }
+
   function check() {
     fetch(url, { credentials: "same-origin", cache: "no-store" })
       .then(function (response) {
-        return response.ok ? response.json() : null;
-      })
-      .then(function (body) {
-        if (body && body.status !== status) {
-          window.location.reload();
-          return;
+        if (response.status === 404) {
+          window.location.reload(); // signed out meanwhile: the page says how to sign in again
+          return undefined;
         }
-        if (body && detail && detail.textContent !== body.detail) {
-          detail.textContent = body.detail;
+        if (!response.ok) {
+          window.setTimeout(check, every); // a hiccup on our side: try again later
+          return undefined;
         }
-        window.setTimeout(check, every);
+        return response.json().then(show);
       })
       .catch(function () {
         window.setTimeout(check, every); // offline for a moment: try again later

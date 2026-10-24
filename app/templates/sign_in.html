@@ -3,7 +3,7 @@
 {% block main %}
 {% if expired %}
 <h1>This link has expired</h1>
-<p>Sign-in links work once, within 30 minutes. <a href="/">Send the form again</a> to get a new one.</p>
+<p>Sign-in links work once, within 30 minutes. <a href="/sign-in-again">Get a new one</a>.</p>
 {% else %}
 <h1>Sign in</h1>
 {% if error %}<p class="error" role="alert">{{ error }} Please press the button again.</p>{% endif %}
