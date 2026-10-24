@@ -64,9 +64,18 @@ stateDiagram-v2
    are never labeled. Each person who was there (attending, attended, speaking, exhibiting) becomes one candidate
    with their most telling post; anyone whose headline already rules them out (an excluded title, a student, the
    requester's own colleague) is kept with the reason and skipped by the paid steps.
-4. **enrich**: Apollo bulk match by LinkedIn URL (10 people per call), cached per person. ICP scoring on the enriched
-   title, seniority, industry and company size. Only verified emails are kept.
-5. **deliver**: the results link is emailed and the run is marked ready.
+4. **enrich**, one `enrich` job per run. Apollo bulk match by LinkedIn URL, 10 people per call, candidates whose
+   headline fits a persona first. Whatever Apollo answers, found or not, is cached on the person for
+   `PERSON_CACHE_DAYS` (30 days, as long as personal data may be kept), so other runs reuse it. When two runs ask
+   about the same person at once, the answer to the later question is the one kept. The ICP score
+   (`app/pipeline/scoring.py`) uses the enriched title, seniority, company industry and company size, and its
+   reasons are kept on the lead. People without an email Apollo marks verified, with an excluded title, at the
+   requester's company, or scoring below `MIN_ICP_SCORE` (40) are left out with the reason; the best 50 make the
+   list. With Reoon on, those 50 addresses get a second check that removes only invalid, disabled and spam-trap
+   addresses. Like qualify, the job makes a few calls per turn, then defers to itself.
+5. **deliver**: the run is marked ready (results kept for 30 days) and a `deliver` job emails the requester the
+   link, with `results:<run id>` as Resend's idempotency key. A send that would come more than 23 hours after the
+   run was ready is dropped instead, since Resend only remembers a key for 24.
 
 ### How the worker runs jobs
 
@@ -105,8 +114,9 @@ stateDiagram-v2
   transaction (row lock on today's budget), so two workers can't both squeeze under the limit. Actual cost is
   settled afterwards.
 - Apify runs carry `maxTotalChargeUsd`, so even a runaway search can't exceed its reservation.
-- Credit-billed calls have their own per-run counters: Apollo lookups (150 per run) and, when enabled, Reoon checks
-  (one per delivered lead). Resend's free tier covers our email volume; sign-ins are rate-limited per IP and email.
+- Credit-billed calls have their own per-run limits: Apollo credits (150 per run, one per person found; a batch
+  never asks about more people than the credits left) and, when enabled, Reoon checks (one per place on the list,
+  at most 50). Resend's free tier covers our email volume; sign-ins are rate-limited per IP and email.
 - Caches mean popular events and people are paid for once.
 
 ## Scaling to 10,000 users

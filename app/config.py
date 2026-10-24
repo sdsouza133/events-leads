@@ -2,10 +2,10 @@
 
 from decimal import Decimal
 from functools import lru_cache
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import Field, SecretStr, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 Environment = Literal["dev", "test", "staging", "production"]
 Effort = Literal["low", "medium", "high", "xhigh", "max"]
@@ -47,6 +47,16 @@ class Settings(BaseSettings):
     search_cache_days: int = Field(default=3, ge=0, le=30)
     search_poll_seconds: int = Field(default=20, ge=1, le=600)
 
+    # Finding emails and delivering the list (issue #7). Apollo bills a credit per person it finds, so each run has
+    # an allowance of credits rather than dollars. A list holds at most 50 people, as the PRD promises.
+    max_leads: int = Field(default=50, ge=1, le=50)
+    apollo_credits_per_run: int = Field(default=150, ge=0, le=1000)
+    # How long a person's Apollo data and email check are reused. At most 30: personal data is deleted by then (PRD).
+    person_cache_days: int = Field(default=30, ge=1, le=30)
+    accepted_email_statuses: Annotated[tuple[str, ...], NoDecode] = Field(default=("verified",), min_length=1)
+    min_icp_score: int = Field(default=40, ge=0, le=100)
+    results_days: int = Field(default=30, ge=1, le=30)
+
     # External services. "fake" runs everything offline on synthetic data (tests, local work, previews).
     providers: Literal["fake", "real"] = "fake"
     anthropic_api_key: SecretStr | None = None
@@ -79,6 +89,16 @@ class Settings(BaseSettings):
         if "env" in data and _blank(data["env"]):
             raise ValueError("ENV is set but blank: set it to dev, test, staging or production")
         return {name: value for name, value in data.items() if not _blank(value)}
+
+    @field_validator("accepted_email_statuses", mode="before")
+    @classmethod
+    def _comma_separated(cls, value: Any) -> Any:
+        """ACCEPTED_EMAIL_STATUSES=verified,likely to engage: Apollo's statuses, compared in lower case."""
+        if isinstance(value, str):
+            value = value.split(",")
+        if isinstance(value, list | tuple | set | frozenset):
+            return tuple(dict.fromkeys(str(item).strip().lower() for item in value if str(item).strip()))
+        return value
 
     @model_validator(mode="after")
     def _require_real_secrets(self) -> "Settings":
