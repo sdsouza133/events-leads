@@ -83,7 +83,15 @@ input[type="text"], input[type="email"], input[type="url"], input[type="date"], 
   border-radius: 4px;
 }
 
-input[aria-invalid="true"] { border-color: var(--error); }
+input[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: var(--error); }
+
+fieldset { border: 1px solid var(--border); border-radius: 4px; padding: 0.75rem 1rem; margin: 1rem 0; }
+legend { font-weight: 700; padding: 0 0.25rem; }
+fieldset.choices { border: 0; padding: 0; margin: 0.75rem 0 0; }
+fieldset.choices legend { font-weight: 600; padding: 0; }
+.choices { display: flex; flex-wrap: wrap; gap: 0.25rem 1.25rem; }
+label.choice { display: inline-flex; align-items: center; gap: 0.375rem; font-weight: 400; margin: 0.25rem 0; }
+label.choice input { width: 1.125rem; height: 1.125rem; }
 
 button {
   font: inherit;
@@ -97,6 +105,9 @@ button {
 }
 
 button:hover { background: var(--accent-dark); }
+
+button.secondary { color: var(--accent); background: #fff; border: 2px solid var(--accent); }
+button.secondary:hover { color: var(--accent-dark); background: var(--surface); }
 
 button.link {
   color: var(--accent);
@@ -119,6 +130,17 @@ form.inline { display: flex; align-items: center; gap: 0.75rem; }
 }
 
 .error-summary h2 { margin-top: 0; }
+
+.notice { border-left: 4px solid var(--accent); background: var(--surface); padding: 0.75rem 1rem; }
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
 
 .status { background: var(--surface); padding: 0.75rem 1rem; border-radius: 4px; }
 .status h2 { margin-top: 0; }

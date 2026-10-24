@@ -1,5 +1,6 @@
 """What every page needs: templates, a database session, the signed-in account, and the CSRF cookie."""
 
+import uuid
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
@@ -9,11 +10,12 @@ from fastapi import Depends, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
+from starlette.datastructures import FormData
 
 from app import auth
 from app.config import Settings, get_settings
 from app.db import get_sessionmaker
-from app.models import Account
+from app.models import Account, Run
 
 TEMPLATES = Jinja2Templates(directory=Path(__file__).resolve().parent.parent / "templates")
 
@@ -48,6 +50,25 @@ SignedIn = Annotated[Account | None, Depends(current_account)]
 
 def is_operator(account: Account | None, settings: Settings) -> bool:
     return account is not None and account.email.lower() in settings.admin_emails
+
+
+def visible_run(session: Session, run_id: uuid.UUID, account: Account | None, settings: Settings) -> Run | None:
+    """The run, if this account may see it: its requester or an operator. Anyone else gets "not found", never
+    "forbidden", so run ids can't be probed."""
+    if account is None:
+        return None
+    run = session.get(Run, run_id)
+    if run is None or not (run.account_id == account.id or is_operator(account, settings)):
+        return None
+    return run
+
+
+async def posted_form(request: Request) -> FormData:
+    """The whole posted form, for pages whose field names depend on what they show (one per event, say)."""
+    return await request.form()
+
+
+PostedForm = Annotated[FormData, Depends(posted_form)]
 
 
 def secure_cookies(settings: Settings) -> bool:

@@ -5,9 +5,10 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
 from app.db import get_engine, session_scope
-from app.models import Base
+from app.models import Account, Base
 from tests.conftest import require_a_test_database
 
 pytestmark = pytest.mark.db
@@ -52,6 +53,12 @@ def test_migrations_apply_and_match_the_models() -> None:
     config = Config(str(ROOT / "alembic.ini"))
     command.upgrade(config, "head")
     command.check(config)
+
+
+def test_an_email_address_is_stored_in_lowercase_only(migrated: None) -> None:
+    """One account per address: Postgres compares text case-sensitively, so a mixed-case copy would be a second one."""
+    with pytest.raises(IntegrityError, match="ck_accounts_email_lowercase"), session_scope() as session:
+        session.add(Account(email="Jo@AcmeWidgets.com", domain="acmewidgets.com"))
 
 
 def test_constraint_names_follow_the_convention() -> None:

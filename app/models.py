@@ -101,6 +101,7 @@ class Account(Base):
     """A requester or operator, identified by a work email."""
 
     __tablename__ = "accounts"
+    __table_args__ = (CheckConstraint("email = lower(email)", name="email_lowercase"),)
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     email: Mapped[str] = mapped_column(String(320), unique=True)

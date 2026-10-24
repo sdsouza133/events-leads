@@ -7,7 +7,7 @@ phrases (during and after it), and the short name people actually use.
 
 from datetime import date
 
-from app.schemas import MAX_QUERIES, EventSuggestion
+from app.schemas import MAX_QUERIES, EventFields
 
 GOING = '("see you at" OR "heading to" OR attending OR speaking OR booth)'
 WENT = '("back from" OR takeaways OR recap OR highlights)'
@@ -24,7 +24,7 @@ def hashtag(text: str) -> str:
     return f"#{clean}" if clean else ""
 
 
-def build_queries(event: EventSuggestion, *, today: date) -> list[str]:
+def build_queries(event: EventFields, *, today: date) -> list[str]:
     full = phrase(event.name)
     short = phrase(event.short_name) if event.short_name else ""
     if short.lower() == full.lower():

@@ -52,6 +52,11 @@ stateDiagram-v2
    instead of a guess. `find_events` asks Claude, with live web search, for real events, and builds up to four
    LinkedIn searches per event. Results are stored on the run for the requester to edit. Both jobs stay within the
    analysis budget, the only spend before approval.
+   - **The plan** (`app/web/plan.py`): while the run awaits approval, its page is a form with the ICP and the events.
+     The requester edits the ICP, picks up to three events (the first three start out picked), edits each event's
+     searches, and adds up to three events of their own, whose searches are built the same way from the name and
+     date. Edits are saved on the run as they go; approving hands the picked events to `collect.approve`, which
+     starts collecting. The form works without JavaScript.
 2. **collect**, one `collect_event` job per approved event (at most three). A search any run made for the same event
    in the last `SEARCH_CACHE_DAYS` (3) is reused, and a run waits for another run's search of the event rather than
    pay for the same posts; the rest go into one Apify run capped by `maxTotalChargeUsd`. The job stores the Apify

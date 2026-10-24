@@ -92,7 +92,9 @@ class SiteAnalysis(_Strict):
     event_topics: list[ShortText] = Field(min_length=1, max_length=8, description="Themes to look for events about")
 
 
-class _EventFields(_Strict):
+class EventFields(_Strict):
+    """What we know of any event: one we suggested, one the requester added, or one they approved."""
+
     name: ShortText
     short_name: ShortText | None = None
     hashtags: list[ShortText] = Field(default_factory=list, max_length=5)
@@ -106,13 +108,13 @@ class _EventFields(_Strict):
         return [t.lstrip("#") for t in tags if t.lstrip("#")]
 
 
-class EventSuggestion(_EventFields):
+class EventSuggestion(EventFields):
     url: Url
     source_url: Url = Field(description="The web search result this event was found in")
     why: Sentence
 
 
-class ApprovedEvent(_EventFields):
+class ApprovedEvent(EventFields):
     """An event the requester approved as suggested, edited, or added, with the searches to run for it."""
 
     url: Url | None = None
