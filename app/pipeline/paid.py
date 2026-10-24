@@ -19,7 +19,7 @@ from decimal import Decimal
 from app import budget
 from app.db import session_scope
 from app.pipeline.base import JobContext
-from app.providers.types import Answer, ProviderError
+from app.providers.types import Answer, AnswerPendingError, ProviderError
 
 PAUSED_RECHECK = timedelta(minutes=5)
 
@@ -95,6 +95,10 @@ def paid_call[T](
         budget.mark_started(session, spend_id, now=ctx.now())
     try:
         answer = call()
+    except AnswerPendingError:  # manual AI mode: no one billable was asked
+        with session_scope() as session:
+            budget.release(session, spend_id, now=ctx.now())
+        raise
     except ProviderError as exc:
         with session_scope() as session:
             if exc.cost_usd is None:  # it may have been billed: count it in full

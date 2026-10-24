@@ -105,6 +105,18 @@ stateDiagram-v2
   the variable restarts it, so a worker told to stop starts no paid call either: its job goes straight back for the
   next worker.
 
+### Manual AI mode
+
+With real providers and no `ANTHROPIC_API_KEY`, `ManualLlm` (`app/providers/manual.py`) stands in for Claude
+([ADR 0007](adr/0007-manual-ai-mode.md)). Each
+question becomes an `ai_tasks` row, found again by what identifies it (the website, the analysis, the posts), and
+the job that asked is put back for 2 minutes without using up an attempt. Its spend reservation is released, since
+nobody billable was asked. Operators answer through the operator API (`/admin/api/tasks`, with `OPERATOR_API_TOKEN`
+as a bearer token). An answer must fit the schema Claude's answer would have to, and its question: events within the
+window asked about, one label for each post. The job then carries on as if Claude had answered, at no cost. Each
+run asks its own events question, and the worker's housekeeping deletes questions after 30 days, answered or not,
+since they can quote people's posts.
+
 ### The operator console
 
 `/admin` (`app/web/console.py`), for the addresses in `ADMIN_EMAILS` only; to anyone else signed in it doesn't exist.
@@ -129,6 +141,7 @@ sign in at `/sign-in-again`, and their link opens the console.
 | `rate_limits` | Fixed-window counters for sign-up and sign-in attempts |
 | `outbox_emails` | Emails kept instead of sent where there's no Resend key: local work and previews |
 | `run_grants` | Extra runs an operator gave a company, one row per run |
+| `ai_tasks` | Manual AI mode: questions for Claude that operators answer instead |
 
 ## Cost controls
 

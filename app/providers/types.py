@@ -29,6 +29,10 @@ class ProviderError(Exception):
         self.declined = declined
 
 
+class AnswerPendingError(Exception):
+    """Manual AI mode: the question is waiting for an operator's answer. The worker puts the job back to ask again."""
+
+
 @dataclass(frozen=True)
 class Answer[T]:
     """A model's answer and what it cost, so the caller can settle the spend it reserved."""

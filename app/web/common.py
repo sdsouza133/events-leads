@@ -71,6 +71,17 @@ async def posted_form(request: Request) -> FormData:
 PostedForm = Annotated[FormData, Depends(posted_form)]
 
 
+async def posted_json(request: Request) -> Any:
+    """The request's JSON body, or None when it isn't JSON, for handlers that check who's asking first."""
+    try:
+        return await request.json()
+    except ValueError:
+        return None
+
+
+PostedJson = Annotated[Any, Depends(posted_json)]
+
+
 def secure_cookies(settings: Settings) -> bool:
     """Cookies are Secure wherever the site is served over https (everywhere but a developer's machine)."""
     return settings.base_url.startswith("https://")

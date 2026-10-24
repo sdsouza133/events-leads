@@ -183,6 +183,23 @@ class RunGrant(Base):
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
 
+class AiTask(Base):
+    """A question for Claude that an operator answers instead, while no API key is set (manual AI mode, issue #9)."""
+
+    __tablename__ = "ai_tasks"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    key: Mapped[str] = mapped_column(String(64), unique=True, comment="sha256 of the kind and what identifies it")
+    kind: Mapped[str] = mapped_column(String(32))
+    run_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("runs.id", ondelete="SET NULL"), comment="The run that asked first"
+    )
+    question: Mapped[dict[str, Any]]
+    answer: Mapped[dict[str, Any] | None]
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    answered_at: Mapped[datetime | None]
+
+
 class Event(Base):
     """A real-world event, shared across runs so its posts are fetched once."""
 

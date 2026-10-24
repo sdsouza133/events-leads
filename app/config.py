@@ -70,6 +70,9 @@ class Settings(BaseSettings):
     # External services. "fake" runs everything offline on synthetic data (tests, local work, previews).
     providers: Literal["fake", "real"] = "fake"
     anthropic_api_key: SecretStr | None = None
+    # Without an Anthropic key, real providers run in manual AI mode (issue #9): operators answer Claude's questions
+    # through the operator API, which takes this as its bearer token.
+    operator_api_token: SecretStr | None = None
     analyze_model: str = "claude-opus-5-5"
     classify_model: str = "claude-opus-5-5"  # claude-haiku-5-5 costs about 1/40 as much; the operator's call
     analyze_effort: Effort = "medium"
@@ -119,6 +122,11 @@ class Settings(BaseSettings):
                 raise ValueError(
                     f"SECRET_KEY must be set to a random value of at least {MIN_SECRET_KEY_LENGTH} characters"
                 )
+            token = self.operator_api_token
+            if token is not None and len(token.get_secret_value()) < MIN_SECRET_KEY_LENGTH:
+                raise ValueError(
+                    f"OPERATOR_API_TOKEN must be a random value of at least {MIN_SECRET_KEY_LENGTH} characters"
+                )
         if not self.database_url.startswith(POSTGRES_SCHEMES):
             raise ValueError("DATABASE_URL must be a PostgreSQL URL")
         if self.env in ("staging", "production") and self.sqlalchemy_url == DEV_DATABASE_URL:
@@ -130,6 +138,11 @@ class Settings(BaseSettings):
         if self.worker_heartbeat_seconds * 3 > self.worker_stale_after_seconds:
             raise ValueError("WORKER_STALE_AFTER_SECONDS must be at least three heartbeats")
         return self
+
+    @property
+    def manual_ai(self) -> bool:
+        """Real providers without an Anthropic key: operators answer Claude's questions (issue #9)."""
+        return self.providers == "real" and self.anthropic_api_key is None
 
     @property
     def sqlalchemy_url(self) -> str:

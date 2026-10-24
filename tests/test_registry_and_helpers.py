@@ -8,6 +8,7 @@ from app.linkedin import normalize_profile_url
 from app.providers import fakes, pricing
 from app.providers.anthropic_llm import AnthropicLlm
 from app.providers.apify import ApifyPostSearch
+from app.providers.manual import ManualLlm
 from app.providers.outbox import OutboxMailer
 from app.providers.registry import ProviderConfigError, build_providers
 from app.providers.resend import ResendMailer
@@ -21,8 +22,18 @@ def test_fake_providers_by_default() -> None:
 
 
 def test_real_providers_need_their_keys() -> None:
-    with pytest.raises(ProviderConfigError, match="ANTHROPIC_API_KEY, APIFY_TOKEN, APOLLO_API_KEY"):
+    with pytest.raises(
+        ProviderConfigError, match="ANTHROPIC_API_KEY or OPERATOR_API_TOKEN, APIFY_TOKEN, APOLLO_API_KEY"
+    ):
         build_providers(Settings(providers="real"))
+
+
+def test_without_an_anthropic_key_operators_answer_claude_s_questions() -> None:
+    settings = Settings(providers="real", operator_api_token="t", apify_token="b", apollo_api_key="c")
+    assert settings.manual_ai
+    assert isinstance(build_providers(settings).llm, ManualLlm)
+    assert not Settings(providers="real", anthropic_api_key="a").manual_ai
+    assert not Settings().manual_ai  # the fakes answer for themselves
 
 
 def test_real_providers_with_keys() -> None:
@@ -44,7 +55,7 @@ def test_real_providers_with_keys() -> None:
 @pytest.mark.parametrize("blank", ["", "   "])
 def test_a_blank_key_counts_as_missing(monkeypatch: pytest.MonkeyPatch, blank: str) -> None:
     monkeypatch.setenv("ANTHROPIC_API_KEY", blank)  # e.g. a CI secret or Railway variable that was never filled in
-    with pytest.raises(ProviderConfigError, match=r"needs ANTHROPIC_API_KEY$"):
+    with pytest.raises(ProviderConfigError, match=r"needs ANTHROPIC_API_KEY or OPERATOR_API_TOKEN$"):
         build_providers(Settings(providers="real", apify_token="b", apollo_api_key="c"))
 
 

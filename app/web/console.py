@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from app import budget, domains
 from app.config import Settings
-from app.models import Account, BudgetDay, Job, JobStatus, Run, RunGrant, RunStatus
+from app.models import Account, AiTask, BudgetDay, Job, JobStatus, Run, RunGrant, RunStatus
 from app.pipeline import runs
 from app.web import common
 from app.web.common import AppSettings, DbSession, SignedIn, page
@@ -212,6 +212,9 @@ def _render(
     context: dict[str, Any] = {
         "account": account,
         "paused": settings.pause_new_runs,
+        "manual_ai": settings.manual_ai,
+        "operator_api": settings.operator_api_token is not None,
+        "questions": session.scalar(select(func.count()).select_from(AiTask).where(AiTask.answer.is_(None))) or 0,
         "free_runs": settings.free_runs_per_domain,
         "notice": notice,
         "errors": errors or {},

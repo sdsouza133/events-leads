@@ -9,6 +9,7 @@ from app.providers import fakes
 from app.providers.anthropic_llm import AnthropicLlm
 from app.providers.apify import ApifyPostSearch
 from app.providers.apollo import ApolloEnrichment
+from app.providers.manual import ManualLlm
 from app.providers.outbox import OutboxMailer
 from app.providers.protocols import EmailVerifier, Llm, Mailer, PeopleEnrichment, PostSearch, WebFetcher
 from app.providers.reoon import ReoonVerifier
@@ -42,10 +43,11 @@ def build_providers(settings: Settings) -> Providers:
         )
 
     required = {
-        "ANTHROPIC_API_KEY": settings.anthropic_api_key,
         "APIFY_TOKEN": settings.apify_token,
         "APOLLO_API_KEY": settings.apollo_api_key,
     }
+    if settings.manual_ai:  # an operator answers Claude's questions, through the API this token opens
+        required["ANTHROPIC_API_KEY or OPERATOR_API_TOKEN"] = settings.operator_api_token
     if settings.reoon_enabled:
         required["REOON_API_KEY"] = settings.reoon_api_key
     if settings.env == "production":
@@ -57,16 +59,20 @@ def build_providers(settings: Settings) -> Providers:
     def secret(value: object) -> str:
         return value.get_secret_value()  # type: ignore[attr-defined, no-any-return]
 
-    llm = AnthropicLlm(
-        # No retries inside the SDK: an attempt that timed out may have been billed, and its cost has to reach the
-        # budget (ADR 0002). The job queue retries instead, accounting for each attempt.
-        client=anthropic.Anthropic(api_key=secret(settings.anthropic_api_key), max_retries=0),
-        analyze_model=settings.analyze_model,
-        classify_model=settings.classify_model,
-        analyze_effort=settings.analyze_effort,
-        classify_effort=settings.classify_effort,
-        max_web_searches=settings.max_web_searches,
-        fallbacks=settings.llm_fallbacks,
+    llm: Llm = (
+        ManualLlm()
+        if settings.manual_ai
+        else AnthropicLlm(
+            # No retries inside the SDK: an attempt that timed out may have been billed, and its cost has to reach
+            # the budget (ADR 0002). The job queue retries instead, accounting for each attempt.
+            client=anthropic.Anthropic(api_key=secret(settings.anthropic_api_key), max_retries=0),
+            analyze_model=settings.analyze_model,
+            classify_model=settings.classify_model,
+            analyze_effort=settings.analyze_effort,
+            classify_effort=settings.classify_effort,
+            max_web_searches=settings.max_web_searches,
+            fallbacks=settings.llm_fallbacks,
+        )
     )
     mailer: Mailer = (
         ResendMailer(secret(settings.resend_api_key), sender=settings.mail_from)

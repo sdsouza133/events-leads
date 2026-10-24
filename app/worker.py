@@ -35,13 +35,15 @@ from app.models import JobStatus
 from app.pipeline.base import Defer, GiveUp, JobContext, JobKind, Payload
 from app.pipeline.jobs import JOBS
 from app.pipeline.paid import SpendingPausedError
+from app.providers import manual
 from app.providers.registry import build_providers
-from app.providers.types import ProviderError
+from app.providers.types import AnswerPendingError, ProviderError
 
 log = logging.getLogger(__name__)
 
 MAINTENANCE_EVERY_SECONDS = 60.0
 RESERVATIONS_OPEN_AT_MOST = timedelta(hours=1)
+ANSWER_RECHECK = timedelta(minutes=2)  # manual AI mode: how soon an operator's answer is picked up
 
 
 def worker_name() -> str:
@@ -102,7 +104,10 @@ class Worker:
         context = {"job_id": job_id, "kind": kind_name, "run_id": payload.get("run_id"), "worker": self.name}
         log.info("job started", extra=context)
         started = time.monotonic()
-        with _Heartbeat(job_id, self.name, self.ctx.settings.worker_heartbeat_seconds):
+        with (
+            _Heartbeat(job_id, self.name, self.ctx.settings.worker_heartbeat_seconds),
+            manual.asking_for(payload.get("run_id")),
+        ):
             self._run(job_id, self.kinds[kind_name], payload, context)
         log.info("job ended", extra={**context, "ms": round((time.monotonic() - started) * 1000)})
         return True
@@ -122,17 +127,21 @@ class Worker:
                 log.warning("job was taken over by another worker; this attempt's writes were dropped", extra=context)
         except SpendingPausedError as exc:  # nothing billed may start now: the job waits, attempt not used up
             session.rollback()
-            self._pause(job_id, exc, context)
+            self._wait(job_id, exc.retry_after, "job paused", {**context, "reason": str(exc)})
+        except AnswerPendingError:  # manual AI mode: the job waits for an operator, without using up an attempt
+            session.rollback()
+            self._wait(job_id, ANSWER_RECHECK, "job waiting for an operator's answer", context)
         except Exception as exc:  # any failure is recorded on the job, and the worker keeps going
             session.rollback()
             self._fail(job_id, kind, payload, exc, context)
         finally:
             session.close()
 
-    def _pause(self, job_id: int, exc: SpendingPausedError, context: dict[str, Any]) -> None:
+    def _wait(self, job_id: int, delay: timedelta, message: str, context: dict[str, Any]) -> None:
+        """Put the job back for later: it isn't failing, it's waiting."""
         with session_scope() as session:
-            queue.defer(session, job_id, self.name, exc.retry_after, now=self.ctx.now())
-        log.info("job paused", extra={**context, "reason": str(exc)})
+            queue.defer(session, job_id, self.name, delay, now=self.ctx.now())
+        log.info(message, extra=context)
 
     def _fail(
         self, job_id: int, kind: JobKind, payload: dict[str, Any], exc: Exception, context: dict[str, Any]
@@ -171,7 +180,8 @@ class Worker:
         self.maintain()
 
     def maintain(self) -> None:
-        """Put back jobs whose worker stopped answering, and close reservations nobody came back for."""
+        """Put back jobs whose worker stopped answering, close reservations nobody came back for, and delete manual
+        AI questions past the 30 days personal data is kept."""
         stale_after = timedelta(seconds=self.ctx.settings.worker_stale_after_seconds)
         with session_scope() as session:
             released = queue.release_stale(session, stale_after, now=self.ctx.now())
@@ -182,13 +192,16 @@ class Worker:
                     self._give_up(kind.on_give_up, session, job.payload, context)
         with session_scope() as session:
             closed = budget.sweep(session, RESERVATIONS_OPEN_AT_MOST, now=self.ctx.now())
-        if released.requeued or released.given_up or closed:
+        with session_scope() as session:
+            forgotten = manual.forget_old_tasks(session, now=self.ctx.now())
+        if released.requeued or released.given_up or closed or forgotten:
             log.info(
                 "housekeeping",
                 extra={
                     "requeued_jobs": released.requeued,
                     "given_up_jobs": len(released.given_up),
                     "closed_reservations": closed,
+                    "forgotten_ai_tasks": forgotten,
                 },
             )
 
