@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Check your email{% endblock %}
+{% block main %}
+<h1>Check your email</h1>
+{% if starting %}
+<p>We sent a sign-in link to <strong>{{ email }}</strong>. It works once, within 30 minutes.</p>
+<p>Opening it starts your run: we read your website and prepare a plan for you to review before anything else
+happens.</p>
+<p class="small">No email after a few minutes? Check your spam folder, or <a href="/">send the form again</a>.</p>
+{% else %}
+<p>If <strong>{{ email }}</strong> has asked us for a list, we sent it a sign-in link. It works once, within 30
+minutes.</p>
+<p class="small">No email after a few minutes? Check your spam folder, or <a href="/sign-in-again">ask again</a>.</p>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Outbox{% endblock %}
+{% block main %}
+<h1>Outbox</h1>
+<p class="small">Emails kept here instead of being sent, because there's no Resend key. Newest first.</p>
+{% for email in emails %}
+<article class="email">
+  <h2>{{ email.subject }}</h2>
+  <p class="small">To {{ email.to }} · {{ email.created_at.strftime("%Y-%m-%d %H:%M UTC") }}</p>
+  <pre>{{ email.text | urlize }}</pre>
+</article>
+{% else %}
+<p>No emails yet.</p>
+{% endfor %}
+{% endblock %}

@@ -104,6 +104,7 @@ stateDiagram-v2
 | `jobs` | The job queue |
 | `spend`, `budget_days` | Every paid call, and the running total per day for the daily cap |
 | `rate_limits` | Fixed-window counters for sign-up and sign-in attempts |
+| `outbox_emails` | Emails kept instead of sent where there's no Resend key: local work and previews |
 
 ## Cost controls
 
@@ -135,17 +136,27 @@ A load test in the QA repo checks the web tier at 500 concurrent users and the q
 
 ## Security
 
-- **Sign-in:** one-time links, hashed in the database, 30-minute expiry, single use. Sessions are random tokens in an
-  HttpOnly, Secure, SameSite=Lax cookie, stored hashed and revocable.
-- **Authorization:** a run and its leads are visible only to the account that created it and to operators.
-- **CSRF:** every form carries a token checked against the session.
+- **Sign-in:** one-time links, hashed in the database, 30-minute expiry, single use. The worker makes the token when
+  it sends the email, so it never passes through the web process, the job queue or a log (uvicorn's access log, which
+  would record it, is off). The link opens a page whose button signs in, so mail scanners that open links can't use
+  them up. Sessions are random tokens in an HttpOnly, Secure, SameSite=Lax cookie, stored hashed and revocable.
+  Someone who has asked for a run before gets a new link from `/sign-in-again` (their link expired or was opened on
+  another device, or they signed out). It signs them in to their latest run, never starts one, and doesn't say
+  whether an address has an account.
+- **Sign-up abuse:** the start and sign-in-again forms together take 5 attempts an hour per IP address and per email
+  address (kept as a hash), and a company's free run is taken under a lock on its domain, so two colleagues signing
+  in at once can't both use it.
+- **Authorization:** a run and its leads are visible only to the account that created it and to operators
+  (`ADMIN_EMAILS`). Anyone else gets "not found", so run ids can't be probed.
+- **CSRF:** every form carries a token that must match a cookie only our pages set (double submit), so a form
+  posted from another site is refused.
 - **SSRF:** the website fetcher resolves the host itself, refuses private, loopback, link-local and reserved
   addresses, connects to the address it checked (no DNS rebinding), re-checks every redirect, and caps size and time.
 - **Headers:** strict Content-Security-Policy, HSTS, no framing.
 - **Secrets:** only in environment variables (Railway); never in the repo or logs.
-- **Logs:** identify people by internal IDs (account, run, person). Lead data (names, emails, LinkedIn URLs) and
-  sign-in links are never logged. A requester's email appears only masked (`j***@acme.example`, via `mask_email`),
-  on the sign-in and rate-limit lines written before an account exists.
+- **Logs:** identify people by internal IDs (account, run, person). Lead data (names, emails, LinkedIn URLs),
+  requesters' email addresses and sign-in links are never logged. A sign-up attempt over the limit is logged without
+  who made it; the `rate_limits` table shows which IP address or address hash went over.
 - **Data retention:** personal data in results and caches is deleted after 30 days.
 
 ## Environments

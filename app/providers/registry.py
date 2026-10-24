@@ -9,6 +9,7 @@ from app.providers import fakes
 from app.providers.anthropic_llm import AnthropicLlm
 from app.providers.apify import ApifyPostSearch
 from app.providers.apollo import ApolloEnrichment
+from app.providers.outbox import OutboxMailer
 from app.providers.protocols import EmailVerifier, Llm, Mailer, PeopleEnrichment, PostSearch, WebFetcher
 from app.providers.reoon import ReoonVerifier
 from app.providers.resend import ResendMailer
@@ -37,7 +38,7 @@ def build_providers(settings: Settings) -> Providers:
             search=fakes.FakePostSearch(),
             enrichment=fakes.FakeEnrichment(),
             verifier=fakes.FakeEmailVerifier() if settings.reoon_enabled else None,
-            mailer=fakes.FakeMailer(),
+            mailer=OutboxMailer(),  # kept for the outbox page, where you sign in when working locally
         )
 
     required = {
@@ -70,7 +71,7 @@ def build_providers(settings: Settings) -> Providers:
     mailer: Mailer = (
         ResendMailer(secret(settings.resend_api_key), sender=settings.mail_from)
         if settings.resend_api_key is not None
-        else fakes.FakeMailer()  # only outside production (checked above); the outbox makes these readable
+        else OutboxMailer()  # only outside production (checked above): previews keep emails in the outbox
     )
     return Providers(
         fetcher=SafeFetcher(),

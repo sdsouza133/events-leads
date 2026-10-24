@@ -8,6 +8,7 @@ from app.linkedin import normalize_profile_url
 from app.providers import fakes, pricing
 from app.providers.anthropic_llm import AnthropicLlm
 from app.providers.apify import ApifyPostSearch
+from app.providers.outbox import OutboxMailer
 from app.providers.registry import ProviderConfigError, build_providers
 from app.providers.resend import ResendMailer
 
@@ -16,6 +17,7 @@ def test_fake_providers_by_default() -> None:
     providers = build_providers(Settings())
     assert isinstance(providers.llm, fakes.FakeLlm)
     assert providers.verifier is None
+    assert isinstance(providers.mailer, OutboxMailer)  # emails go to the outbox page, where you sign in locally
 
 
 def test_real_providers_need_their_keys() -> None:
@@ -34,7 +36,7 @@ def test_real_providers_with_keys() -> None:
     assert isinstance(providers.llm, AnthropicLlm)
     assert providers.llm._client.max_retries == 0  # every attempt, billed or not, goes through our spend accounting
     assert isinstance(providers.search, ApifyPostSearch)
-    assert isinstance(providers.mailer, fakes.FakeMailer)  # no Resend key outside production: nothing is sent
+    assert isinstance(providers.mailer, OutboxMailer)  # no Resend key outside production: kept, not sent
     with_mail = build_providers(settings.model_copy(update={"resend_api_key": settings.apollo_api_key}))
     assert isinstance(with_mail.mailer, ResendMailer)
 

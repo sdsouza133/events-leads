@@ -383,3 +383,18 @@ class RateLimit(Base):
     key: Mapped[str] = mapped_column(String(200), primary_key=True)
     window_start: Mapped[datetime] = mapped_column(primary_key=True)
     count: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+
+
+class OutboxEmail(Base):
+    """An email kept instead of sent, where there's no Resend key: local work and previews (ADR 0004). Production
+    requires the key, so nothing is ever written here there."""
+
+    __tablename__ = "outbox_emails"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    key: Mapped[str] = mapped_column(String(200), unique=True, comment="The idempotency key Resend would have had")
+    to: Mapped[str] = mapped_column(String(320))
+    subject: Mapped[str] = mapped_column(String(300))
+    text: Mapped[str] = mapped_column(Text)
+    html: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), index=True)

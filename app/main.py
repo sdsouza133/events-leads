@@ -5,14 +5,18 @@ import re
 import time
 import uuid
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.staticfiles import StaticFiles
 
-from app import __version__
+from app import __version__, web
 from app.config import get_settings
 from app.db import database_is_reachable
 from app.logging_config import configure_logging
+
+STATIC = Path(__file__).resolve().parent / "static"
 
 log = logging.getLogger("app.http")
 
@@ -86,6 +90,8 @@ def create_app() -> FastAPI:
             return JSONResponse({"status": "ready"})
         return JSONResponse({"status": "database unavailable"}, status_code=503)
 
+    app.mount("/static", StaticFiles(directory=STATIC), name="static")
+    app.include_router(web.router)
     return app
 
 

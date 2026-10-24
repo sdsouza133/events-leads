@@ -18,5 +18,6 @@ ENV PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1 PORT=8000
 USER appuser
 EXPOSE 8000
 # Behind Railway's edge proxy the client address arrives in X-Forwarded-For. The app is only reachable through that
-# proxy, so trusting its forwarded headers is safe.
-CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port \"$PORT\" --proxy-headers --forwarded-allow-ips='*'"]
+# proxy, so trusting its forwarded headers is safe. uvicorn's access log is off: it records query strings, and a
+# sign-in link carries its one-time token in one. The app logs each request itself, by path only.
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port \"$PORT\" --proxy-headers --forwarded-allow-ips='*' --no-access-log"]

@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}{{ run.domain }}{% endblock %}
+{% block main %}
+<h1>{{ run.domain }}</h1>
+<section class="status" aria-labelledby="status-title">
+  <h2 id="status-title">{{ label }}</h2>
+  <p id="run-detail" aria-live="polite">{{ run.status_detail or "" }}</p>
+  {% if working %}
+  <p class="small">This page updates by itself. You can also close it: we'll email you when your list is ready.</p>
+  {% endif %}
+</section>
+<div id="run" data-status-url="/runs/{{ run.id }}/status" data-status="{{ run.status }}" hidden></div>
+{% endblock %}
+{% block scripts %}{% if working %}<script src="/static/run.js" defer></script>{% endif %}{% endblock %}

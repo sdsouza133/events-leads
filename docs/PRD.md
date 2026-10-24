@@ -81,8 +81,7 @@ It is a lead magnet for B2B Dynamics: no sales pitch inside the product. The val
 - **Scale:** 10,000 registered companies; 500 runs a day; web pages respond in under 300 ms at the 95th percentile.
 - **Reliability:** a crash or redeploy never loses a run; work resumes where it stopped.
 - **Security and privacy:** OWASP Top 10 covered; results visible only to the requester and the operator; personal data
-  deleted after 30 days. Logs never contain lead data or sign-in links; a requester's email appears only masked, on the
-  sign-in and rate-limit lines written before an account exists.
+  deleted after 30 days. Logs never contain lead data, email addresses or sign-in links.
 - **Accessibility:** WCAG 2.1 AA for the requester-facing pages.
 
 ## Success metrics

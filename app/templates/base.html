@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <title>{% block title %}Event Leads{% endblock %} · Event Leads</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="site">
+    <a class="brand" href="/">Event Leads</a>
+    {% if account %}
+    <form method="post" action="/sign-out" class="inline">
+      <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
+      <span class="who">{{ account.email }}</span>
+      <button type="submit" class="link">Sign out</button>
+    </form>
+    {% endif %}
+  </header>
+  <main id="main" tabindex="-1">
+    {% block main %}{% endblock %}
+  </main>
+  <footer class="site">
+    <p>Built by B2B Dynamics. Leads come from public LinkedIn posts.</p>
+  </footer>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -34,7 +34,12 @@ uv sync
 cp .env.example .env          # set SECRET_KEY
 make migrate
 make run                      # http://localhost:8000
+make worker                   # in a second terminal: runs the pipeline's jobs
 make check                    # lint, type check and tests, the same as CI
 ```
+
+To try it locally, open http://localhost:8000 and send the form with any company domain and an address on it (with
+the default `PROVIDERS=fake`, nothing reaches the network). There's no email locally: the sign-in link waits on
+http://localhost:8000/dev/outbox.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and [SECURITY.md](SECURITY.md) to report a problem.

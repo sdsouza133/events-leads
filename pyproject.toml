@@ -10,10 +10,13 @@ dependencies = [
     "beautifulsoup4>=4.12",
     "fastapi>=0.115",
     "httpx2>=1.0",
+    "jinja2>=3.1",
     "psycopg[binary]>=3.2",
     "pydantic>=2.8",
     "pydantic-settings>=2.7",  # NoDecode
+    "python-multipart>=0.0.30",  # CVE-2024-53981, CVE-2026-42561, CVE-2026-53539
     "sqlalchemy>=2.0.30",
+    "tldextract>=5.1",
     "uvicorn[standard]>=0.30",
 ]
 

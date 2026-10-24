@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Find the people at your industry's events{% endblock %}
+{% block main %}
+<h1>Find the people at your industry's events</h1>
+<p class="lead">Tell us your website. We work out who you sell to, find the events they go to, and send you up to
+50 attendees who fit, each with a verified work email and their LinkedIn profile.</p>
+
+{% if errors %}
+<div class="error-summary" role="alert" aria-labelledby="error-summary-title">
+  <h2 id="error-summary-title">Please check the form</h2>
+  <ul>
+    {% if errors.form %}<li>{{ errors.form }}</li>{% endif %}
+    {% if errors.website %}<li><a href="#website">{{ errors.website }}</a></li>{% endif %}
+    {% if errors.email %}<li><a href="#email">{{ errors.email }}</a></li>{% endif %}
+  </ul>
+</div>
+{% endif %}
+
+<form method="post" action="/start" novalidate>
+  <input type="hidden" name="{{ csrf_field }}" value="{{ csrf }}">
+  <div class="field">
+    <label for="website">Your company's website</label>
+    <p class="hint" id="website-hint">For example, acme.com</p>
+    {% if errors.website %}<p class="error" id="website-error">{{ errors.website }}</p>{% endif %}
+    <input id="website" name="website" type="text" inputmode="url" autocomplete="url" spellcheck="false"
+           value="{{ form.website or '' }}" required
+           aria-describedby="website-hint{% if errors.website %} website-error{% endif %}"
+           {% if errors.website %}aria-invalid="true"{% endif %}>
+  </div>
+  <div class="field">
+    <label for="email">Your work email</label>
+    <p class="hint" id="email-hint">At the same domain as the website. We email you a link to sign in.</p>
+    {% if errors.email %}<p class="error" id="email-error">{{ errors.email }}</p>{% endif %}
+    <input id="email" name="email" type="email" autocomplete="email" spellcheck="false"
+           value="{{ form.email or '' }}" required
+           aria-describedby="email-hint{% if errors.email %} email-error{% endif %}"
+           {% if errors.email %}aria-invalid="true"{% endif %}>
+  </div>
+  <button type="submit">Email me a sign-in link</button>
+</form>
+<p class="small">One free list per company. Nothing runs until you open the link we email you.</p>
+{% endblock %}
