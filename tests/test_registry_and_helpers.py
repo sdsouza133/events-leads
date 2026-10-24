@@ -45,6 +45,7 @@ def test_real_providers_with_keys() -> None:
     )
     providers = build_providers(settings)
     assert isinstance(providers.llm, AnthropicLlm)
+    assert providers.llm._client.max_retries == 0  # every attempt, billed or not, goes through our spend accounting
     assert isinstance(providers.search, ApifyPostSearch)
     assert isinstance(providers.mailer, OutboxMailer)  # no Resend key outside production: kept, not sent
     with_mail = build_providers(settings.model_copy(update={"resend_api_key": settings.apollo_api_key}))
