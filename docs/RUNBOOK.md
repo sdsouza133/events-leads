@@ -30,6 +30,9 @@ What to do when operating the service. Keep it current: every incident should le
   `SEARCH_POLL_SECONDS`; the run is visible in the Apify console under that id. After 30 minutes the search is
   given up and tried once more. `pending` with no `apify_run_id` is either waiting for another run's search of the
   same event or, if the run is `waiting_for_budget`, for the next UTC day. `error` says why an event failed.
+- A run stuck in `qualifying`: its `qualify` job defers to itself between turns, so a queued job with a recent
+  `run_after` is working. `status_detail` says when it waits for the next day's budget. `post_labels` shows what
+  is labeled (`method` rule, model or skipped); `error` on the run notes when its budget ran out mid-way.
 
 ## Pausing spend immediately
 
