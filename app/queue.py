@@ -75,10 +75,13 @@ def enqueue(
 
 
 def claim(session: Session, worker: str, *, kinds: list[str] | None = None, now: datetime | None = None) -> Job | None:
-    """Take the next due job, or None. Commit right after, so other workers see it as running."""
+    """Take the next due job, or None. Commit right after, so other workers see it as running.
+
+    `kinds` limits it to those kinds (an empty list takes nothing); None takes any kind.
+    """
     now = now or utcnow()
     query = select(Job).where(Job.status == JobStatus.QUEUED, Job.run_after <= now)
-    if kinds:
+    if kinds is not None:
         query = query.where(Job.kind.in_(kinds))
     job = session.scalars(query.order_by(Job.run_after, Job.id).limit(1).with_for_update(skip_locked=True)).first()
     if job is None:
