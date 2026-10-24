@@ -95,7 +95,7 @@ def test_dedupe_key_is_free_again_once_the_job_is_done(db: Session) -> None:
     db.commit()
     job = queue.claim(db, "w", now=NOW)
     assert job is not None
-    queue.complete(db, job.id)
+    assert queue.complete(db, job.id, "w")
     db.commit()
     again = queue.enqueue(db, "deliver", dedupe_key="deliver:r1")
     assert again is not None
@@ -109,14 +109,14 @@ def test_failures_retry_with_backoff_then_give_up(db: Session) -> None:
     db.commit()
 
     queue.claim(db, "w", now=NOW)
-    assert queue.fail(db, job_id, "Apollo 503", now=NOW) == JobStatus.QUEUED
+    assert queue.fail(db, job_id, "w", "Apollo 503", now=NOW) == JobStatus.QUEUED
     job = db.get(Job, job_id)
     assert job is not None
     assert job.run_after == NOW + timedelta(seconds=30)
     assert job.last_error == "Apollo 503"
 
     queue.claim(db, "w", now=NOW + timedelta(seconds=30))
-    assert queue.fail(db, job_id, "Apollo 503 again", now=NOW) == JobStatus.FAILED
+    assert queue.fail(db, job_id, "w", "Apollo 503 again", now=NOW) == JobStatus.FAILED
 
 
 @needs_db
@@ -125,7 +125,7 @@ def test_non_retryable_failure_gives_up_at_once(db: Session) -> None:
     assert job_id is not None
     db.commit()
     queue.claim(db, "w", now=NOW)
-    assert queue.fail(db, job_id, "bad input", retryable=False, now=NOW) == JobStatus.FAILED
+    assert queue.fail(db, job_id, "w", "bad input", retryable=False, now=NOW) == JobStatus.FAILED
 
 
 @needs_db
@@ -134,7 +134,7 @@ def test_long_errors_are_truncated(db: Session) -> None:
     assert job_id is not None
     db.commit()
     queue.claim(db, "w", now=NOW)
-    queue.fail(db, job_id, "x" * 10_000, now=NOW)
+    queue.fail(db, job_id, "w", "x" * 10_000, now=NOW)
     job = db.get(Job, job_id)
     assert job is not None
     assert job.last_error is not None
@@ -149,7 +149,7 @@ def test_defer_reschedules_without_using_an_attempt(db: Session) -> None:
     for minute in range(5):  # polling five times must not exhaust a single attempt
         job = queue.claim(db, "w", now=NOW + timedelta(minutes=minute))
         assert job is not None
-        queue.defer(db, job_id, timedelta(minutes=1), now=NOW + timedelta(minutes=minute))
+        assert queue.defer(db, job_id, "w", timedelta(minutes=1), now=NOW + timedelta(minutes=minute))
     job = db.get(Job, job_id)
     assert job is not None
     assert (job.status, job.attempts) == (JobStatus.QUEUED, 0)
@@ -188,4 +188,43 @@ def test_counts_by_status(db: Session) -> None:
 @needs_db
 def test_completing_an_unknown_job_is_an_error(db: Session) -> None:
     with pytest.raises(LookupError):
-        queue.complete(db, 123456)
+        queue.complete(db, 123456, "w")
+
+
+@needs_db
+def test_a_worker_that_lost_its_job_cannot_change_it(db: Session) -> None:
+    """Worker A is slow, its job is released and claimed by B: A's late complete, fail or defer must not touch it."""
+    job_id = queue.enqueue(db, "collect", run_after=NOW)
+    assert job_id is not None
+    db.commit()
+    queue.claim(db, "worker-a", now=NOW)
+    db.commit()
+    queue.release_stale(db, timedelta(minutes=15), now=NOW + timedelta(minutes=20))
+    db.commit()
+    reclaimed = queue.claim(db, "worker-b", now=NOW + timedelta(minutes=20))
+    assert reclaimed is not None
+    db.commit()
+
+    assert queue.complete(db, job_id, "worker-a") is False
+    assert queue.fail(db, job_id, "worker-a", "late failure", now=NOW) is None
+    assert queue.defer(db, job_id, "worker-a", timedelta(minutes=1), now=NOW) is False
+    db.commit()
+
+    job = db.get(Job, job_id)
+    assert job is not None
+    db.refresh(job)
+    assert (job.status, job.locked_by, job.attempts, job.last_error) == (JobStatus.RUNNING, "worker-b", 2, None)
+    assert queue.complete(db, job_id, "worker-b")
+
+
+@needs_db
+def test_a_finished_job_cannot_be_finished_again(db: Session) -> None:
+    job_id = queue.enqueue(db, "deliver", run_after=NOW)
+    assert job_id is not None
+    db.commit()
+    queue.claim(db, "w", now=NOW)
+    assert queue.complete(db, job_id, "w")
+    assert queue.fail(db, job_id, "w", "after the fact", now=NOW) is None
+    job = db.get(Job, job_id)
+    assert job is not None
+    assert job.status == JobStatus.DONE

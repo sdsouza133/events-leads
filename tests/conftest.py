@@ -19,17 +19,28 @@ from sqlalchemy.orm import Session
 os.environ.setdefault("ENV", "test")
 os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://el:el@127.0.0.1:5432/el_test")
 
-from app.config import get_settings
+from app.config import Settings, get_settings
 from app.db import database_is_reachable, get_engine, get_sessionmaker
 from app.models import Base
 
 ROOT = Path(__file__).resolve().parent.parent
+
+# Tests never read a developer's .env: what they see comes from the variables set here and in each test.
+Settings.model_config["env_file"] = None
+
+
+def require_a_test_database(name: str | None) -> None:
+    """Database tests create, empty and drop tables. Refuse to touch a database not named like one made for tests,
+    so an exported DATABASE_URL (staging, production) can't be wiped by running pytest."""
+    if not (name or "").endswith("_test"):
+        raise pytest.UsageError(f"refusing to run database tests against {name!r}: its name must end in _test")
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     if not any(item.get_closest_marker("db") for item in items):
         return
     if database_is_reachable():
+        require_a_test_database(get_engine().url.database)
         return
     if os.environ.get("REQUIRE_DB") == "1":
         raise pytest.UsageError("REQUIRE_DB=1 but the database at DATABASE_URL is not reachable")
@@ -61,12 +72,15 @@ def alembic_config() -> Config:
 @pytest.fixture(scope="session")
 def migrated() -> None:
     """The schema at the latest migration, built once per test session."""
+    require_a_test_database(get_engine().url.database)
     command.upgrade(alembic_config(), "head")
 
 
 def truncate_all_tables() -> None:
+    engine = get_engine()
+    require_a_test_database(engine.url.database)
     tables = ", ".join(table.name for table in Base.metadata.sorted_tables)
-    with get_engine().begin() as conn:
+    with engine.begin() as conn:
         conn.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
 
 
